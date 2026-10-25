@@ -1,4 +1,5 @@
 import sys
+import torch
 from pathlib import Path
 from PIL import Image
 from app.utils import rgba_to_rgb, simple_remove

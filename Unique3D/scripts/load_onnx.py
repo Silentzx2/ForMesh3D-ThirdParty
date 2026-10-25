@@ -1,26 +1,30 @@
 import onnxruntime
 import torch
 
-providers = [
-    ('TensorrtExecutionProvider', {
-        'device_id': 0,
-        'trt_max_workspace_size': 8 * 1024 * 1024 * 1024,
-        'trt_fp16_enable': True,
-        'trt_engine_cache_enable': True,
-    }),
-    ('CUDAExecutionProvider', {
-        'device_id': 0,
-        'arena_extend_strategy': 'kSameAsRequested',
-        'gpu_mem_limit': 8 * 1024 * 1024 * 1024,
-        'cudnn_conv_algo_search': 'HEURISTIC',
-    }),
-    ('CPUExecutionProvider', {})
-]
+def get_onnx_providers():
+    """Get active ONNX execution providers, preferring CUDA over CPU and avoiding missing TensorRT libraries."""
+    try:
+        available = onnxruntime.get_available_providers()
+    except Exception:
+        available = []
+
+    providers = []
+    if 'CUDAExecutionProvider' in available and torch.cuda.is_available():
+        dev_idx = torch.cuda.current_device() if torch.cuda.is_available() else 0
+        providers.append(('CUDAExecutionProvider', {
+            'device_id': dev_idx,
+            'arena_extend_strategy': 'kSameAsRequested',
+            'gpu_mem_limit': 4 * 1024 * 1024 * 1024,
+            'cudnn_conv_algo_search': 'HEURISTIC',
+        }))
+    if 'CPUExecutionProvider' in available or not providers:
+        providers.append('CPUExecutionProvider')
+    return providers
 
 def load_onnx(file_path: str):
     assert file_path.endswith(".onnx")
     sess_opt = onnxruntime.SessionOptions()
-    ort_session = onnxruntime.InferenceSession(file_path, sess_opt=sess_opt, providers=providers)
+    ort_session = onnxruntime.InferenceSession(file_path, sess_opt=sess_opt, providers=get_onnx_providers())
     return ort_session
 
 
