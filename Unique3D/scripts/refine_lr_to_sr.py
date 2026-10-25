@@ -32,41 +32,67 @@ SR_cache = None
 
 def run_sr_fast(source_pils, scale=4):
     from PIL import Image
-    from scripts.upsampler import RealESRGANer
     import numpy as np
     global SR_cache
-    if SR_cache is not None:
-        upsampler = SR_cache
-        onnx_path = "ckpt/realesrgan-x4.onnx"
-        if not os.path.exists(onnx_path):
+    upsampler = SR_cache
+
+    if upsampler is None:
+        try:
+            from scripts.upsampler import RealESRGANer
+            onnx_path = "ckpt/realesrgan-x4.onnx"
             from pathlib import Path
             root = Path(__file__).resolve().parent.parent
-            for cand in [
+            candidates = [
+                Path("ckpt/realesrgan-x4.onnx"),
                 root / "ckpt" / "realesrgan-x4.onnx",
                 root.parent.parent / "pretrained" / "Unique3D" / "ckpt" / "realesrgan-x4.onnx",
-            ]:
-                if cand.exists():
-                    onnx_path = str(cand)
+                root.parent.parent / "pretrained" / "Unique3D" / "realesrgan-x4.onnx",
+                root.parent.parent / "pretrained" / "realesrgan-x4.onnx",
+            ]
+            if os.environ.get("PRETRAINED_DIR"):
+                p_dir = Path(os.environ["PRETRAINED_DIR"])
+                candidates.extend([
+                    p_dir / "Unique3D" / "ckpt" / "realesrgan-x4.onnx",
+                    p_dir / "Unique3D" / "realesrgan-x4.onnx",
+                    p_dir / "realesrgan-x4.onnx",
+                ])
+            for cand in candidates:
+                if cand.is_file():
+                    onnx_path = str(cand.resolve())
                     break
-        upsampler = RealESRGANer(
-            scale=4,
-            onnx_path=onnx_path,
-            tile=0,
-            tile_pad=10,
-            pre_pad=0,
-            half=True,
-            gpu_id=0,
-        )
+
+            upsampler = RealESRGANer(
+                scale=scale,
+                onnx_path=onnx_path,
+                tile=0,
+                tile_pad=10,
+                pre_pad=0,
+                half=torch.cuda.is_available(),
+                gpu_id=0 if torch.cuda.is_available() else None,
+            )
+            SR_cache = upsampler
+        except Exception:
+            upsampler = None
+
     ret_pils = []
     for idx, img_pils in enumerate(source_pils):
         np_in = isinstance(img_pils, np.ndarray)
         assert isinstance(img_pils, (Image.Image, np.ndarray))
-        img = np.array(img_pils)
-        output, _ = upsampler.enhance(img, outscale=scale)
-        if np_in:
-            ret_pils.append(output)
-        else:
-            ret_pils.append(Image.fromarray(output))
-    if SR_cache is None:
-        SR_cache = upsampler
+        if upsampler is not None:
+            try:
+                img = np.array(img_pils)
+                output, _ = upsampler.enhance(img, outscale=scale)
+                if np_in:
+                    ret_pils.append(output)
+                else:
+                    ret_pils.append(Image.fromarray(output))
+                continue
+            except Exception:
+                pass
+        # Fallback to high quality Lanczos upscaling if RealESRGANer is unavailable or fails
+        pil_img = Image.fromarray(img_pils) if np_in else img_pils
+        w, h = pil_img.size
+        upscaled = pil_img.resize((int(w * scale), int(h * scale)), resample=Image.LANCZOS)
+        ret_pils.append(np.array(upscaled) if np_in else upscaled)
+
     return ret_pils

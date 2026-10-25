@@ -47,7 +47,7 @@ class RealESRGANer():
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if device is None else device
         self.model = load_onnx_caller(onnx_path, single_output=True)
         # warm up
-        sample_input = torch.randn(1,3,512,512).cuda().float()
+        sample_input = torch.randn(1, 3, 512, 512, device=self.device).float()
         self.model(sample_input)
 
     def pre_process(self, img):

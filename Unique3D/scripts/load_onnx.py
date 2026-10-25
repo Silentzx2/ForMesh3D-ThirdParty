@@ -13,7 +13,8 @@ providers = [
         'arena_extend_strategy': 'kSameAsRequested',
         'gpu_mem_limit': 8 * 1024 * 1024 * 1024,
         'cudnn_conv_algo_search': 'HEURISTIC',
-    })
+    }),
+    ('CPUExecutionProvider', {})
 ]
 
 def load_onnx(file_path: str):
