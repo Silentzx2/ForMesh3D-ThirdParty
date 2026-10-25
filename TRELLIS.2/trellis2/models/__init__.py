@@ -63,7 +63,11 @@ def from_pretrained(path: str, **kwargs):
     with open(config_file, 'r') as f:
         config = json.load(f)
     model = __getattr__(config['name'])(**config['args'], **kwargs)
-    model.load_state_dict(load_file(model_file), strict=False)
+    state = load_file(model_file)
+    model.load_state_dict(state, strict=False)
+    del state
+    import gc
+    gc.collect()
 
     return model
 

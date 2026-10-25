@@ -9,6 +9,21 @@ __all__ = [
 ]
 
 
+def _sdpa_varlen_attention(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, q_seqlen: List[int], kv_seqlen: List[int]) -> torch.Tensor:
+    """Run PyTorch SDPA independently for each sparse batch segment."""
+    q_chunks = torch.split(q, q_seqlen, dim=0)
+    k_chunks = torch.split(k, kv_seqlen, dim=0)
+    v_chunks = torch.split(v, kv_seqlen, dim=0)
+    outputs = []
+    for q_chunk, k_chunk, v_chunk in zip(q_chunks, k_chunks, v_chunks):
+        q_chunk = q_chunk.transpose(0, 1).unsqueeze(0)
+        k_chunk = k_chunk.transpose(0, 1).unsqueeze(0)
+        v_chunk = v_chunk.transpose(0, 1).unsqueeze(0)
+        out = torch.nn.functional.scaled_dot_product_attention(q_chunk, k_chunk, v_chunk)
+        outputs.append(out.squeeze(0).transpose(0, 1))
+    return torch.cat(outputs, dim=0)
+
+
 @overload
 def sparse_scaled_dot_product_attention(qkv: VarLenTensor) -> VarLenTensor:
     """
@@ -211,6 +226,12 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             max_q_seqlen = max(q_seqlen)
             max_kv_seqlen = max(kv_seqlen)
         out = flash_attn_3.flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max_q_seqlen, max_kv_seqlen)
+    elif config.ATTN == 'sdpa':
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        out = _sdpa_varlen_attention(q, k, v, q_seqlen, kv_seqlen)
     else:
         raise ValueError(f"Unknown attention module: {config.ATTN}")
     

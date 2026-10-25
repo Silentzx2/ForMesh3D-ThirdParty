@@ -60,6 +60,8 @@ def calc_window_partition(
             'cu_seqlens': torch.cat([torch.tensor([0], device=tensor.device), torch.cumsum(seq_lens, dim=0)], dim=0).int(),
             'max_seqlen': torch.max(seq_lens)
         }
+    else:
+        attn_func_args = {}
 
     return fwd_indices, bwd_indices, seq_lens, attn_func_args
     
@@ -113,6 +115,17 @@ def sparse_windowed_scaled_dot_product_self_attention(
         if 'flash_attn' not in globals():
             import flash_attn
         out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, **attn_func_args)  # [M, H, C]
+    elif config.ATTN == 'sdpa':
+        splits = torch.split(qkv_feats, seq_lens.tolist(), dim=0)
+        outs = []
+        for chunk in splits:
+            q, k, v = chunk.unbind(dim=1)
+            q = q.transpose(0, 1).unsqueeze(0)
+            k = k.transpose(0, 1).unsqueeze(0)
+            v = v.transpose(0, 1).unsqueeze(0)
+            out_chunk = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+            outs.append(out_chunk.squeeze(0).transpose(0, 1))
+        out = torch.cat(outs, dim=0)
 
     out = out[bwd_indices]      # [T, H, C]
 
@@ -184,6 +197,19 @@ def sparse_windowed_scaled_dot_product_cross_attention(
             cu_seqlens_q=q_attn_func_args['cu_seqlens'], cu_seqlens_k=kv_attn_func_args['cu_seqlens'],
             max_seqlen_q=q_attn_func_args['max_seqlen'], max_seqlen_k=kv_attn_func_args['max_seqlen'],
         )  # [M, H, C]
+    elif config.ATTN == 'sdpa':
+        q_splits = torch.split(q_feats, q_seq_lens.tolist(), dim=0)
+        k, v = kv_feats.unbind(dim=1)
+        k_splits = torch.split(k, kv_seq_lens.tolist(), dim=0)
+        v_splits = torch.split(v, kv_seq_lens.tolist(), dim=0)
+        outs = []
+        for q_c, k_c, v_c in zip(q_splits, k_splits, v_splits):
+            q_c = q_c.transpose(0, 1).unsqueeze(0)
+            k_c = k_c.transpose(0, 1).unsqueeze(0)
+            v_c = v_c.transpose(0, 1).unsqueeze(0)
+            out_c = torch.nn.functional.scaled_dot_product_attention(q_c, k_c, v_c)
+            outs.append(out_c.squeeze(0).transpose(0, 1))
+        out = torch.cat(outs, dim=0)
 
     out = out[q_bwd_indices]      # [T, H, C]
 
