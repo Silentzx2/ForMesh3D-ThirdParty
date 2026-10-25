@@ -43,7 +43,10 @@ class Pipeline:
             try:
                 _models[k] = models.from_pretrained(f"{path}/{v}")
             except Exception as e:
-                _models[k] = models.from_pretrained(v)
+                if not str(v).startswith("ckpts/") and ("/" in str(v)):
+                    _models[k] = models.from_pretrained(v)
+                else:
+                    raise
 
         new_pipeline = cls(_models)
         new_pipeline._pretrained_args = args
