@@ -75,9 +75,17 @@ def calc_w_over_h(normal_pil):
         alpha[alpha < 0.5] = 0
     else:
         alpha = ~(arr.min(axis=-1) >= 250)
-    h_min, w_min = np.min(np.where(alpha), axis=1)
-    h_max, w_max = np.max(np.where(alpha), axis=1)
-    return (w_max - w_min) / (h_max - h_min)
+    indices = np.where(alpha > 0.5)
+    if len(indices[0]) == 0 or len(indices[1]) == 0:
+        return 0.35
+    h_min, w_min = np.min(indices[0]), np.min(indices[1])
+    h_max, w_max = np.max(indices[0]), np.max(indices[1])
+    diff_h = max(h_max - h_min, 1)
+    diff_w = max(w_max - w_min, 1)
+    ratio = diff_w / diff_h
+    # Bound scale to prevent the 3D mesh from collapsing into a flat wafer (e.g. 0.03m thickness)
+    # or hyper-inflating into an oversized sphere.
+    return float(np.clip(ratio, 0.25, 0.85))
 
 def build_mesh(normal_pil, rgb_pil, is_back=False, clamp_min=-1, scale=0.3, init_type="std", offset=0):
     if is_back:
@@ -91,29 +99,38 @@ def build_mesh(normal_pil, rgb_pil, is_back=False, clamp_min=-1, scale=0.3, init
     else:
         raise ValueError("invalid input, either normal or rgb should have alpha channel")
     
-    real_height_pix = np.max(np.where(valid_HWC>0.5)[0]) - np.min(np.where(valid_HWC>0.5)[0])
+    real_indices = np.where(valid_HWC > 0.5)[0]
+    if len(real_indices) > 0:
+        real_height_pix = np.max(real_indices) - np.min(real_indices)
+    else:
+        real_height_pix = normal_img.shape[0]
 
     heights = normalmap_to_depthmap(normal_img)
     rgb_BCHW = torch.from_numpy(rgb_img[..., :3] / 255.).permute((2,0,1))[None]
     valid_HWC[valid_HWC < 0.5] = 0
     valid_HWC[valid_HWC >= 0.5] = 1
     valid_HWC = torch.from_numpy(valid_HWC).bool()
-    if init_type == "std":
-        # accurate but not stable
-        pred_HWC = torch.from_numpy(heights / heights.max() * (real_height_pix / heights.shape[0]) * scale * 2).float()[..., None]
-    elif init_type == "thin":
-        heights = heights - heights.min()
-        heights = (heights / heights.max() * 0.2)
-        pred_HWC = torch.from_numpy(heights * scale).float()[..., None]
+
+    # Normalize depth heights cleanly to [0, 1]
+    h_span = float(heights.max() - heights.min())
+    if h_span > 1e-5:
+        h_norm = (heights - heights.min()) / h_span
     else:
-        # stable but not accurate
-        heights = heights - heights.min()
-        heights = (heights / heights.max() * (1-offset)) + offset # to [0.2, 1]
-        pred_HWC = torch.from_numpy(heights * scale).float()[..., None]
+        h_norm = np.zeros_like(heights)
+
+    scale_eff = max(float(scale), 0.25)
+    height_factor = max(float(real_height_pix) / max(heights.shape[0], 1), 0.3)
+
+    if init_type == "std":
+        pred_HWC = torch.from_numpy(h_norm * height_factor * scale_eff * 2.0).float()[..., None]
+    elif init_type == "thin":
+        pred_HWC = torch.from_numpy(h_norm * 0.25 * scale_eff * 2.0).float()[..., None]
+    else:
+        h_scaled = (h_norm * (1.0 - offset)) + offset
+        pred_HWC = torch.from_numpy(h_scaled * scale_eff * 2.0).float()[..., None]
     
-    # set the boarder pixels to 0 height
+    # set the border pixels to 0 height
     import cv2
-    # edge filter
     edge = cv2.Canny((valid_HWC[..., 0] * 255).numpy().astype(np.uint8), 0, 255)
     edge = torch.from_numpy(edge).bool()[..., None]
     pred_HWC[edge] = 0
@@ -121,7 +138,7 @@ def build_mesh(normal_pil, rgb_pil, is_back=False, clamp_min=-1, scale=0.3, init
     valid_HWC[pred_HWC < clamp_min] = False
     return depth_and_color_to_mesh(rgb_BCHW.cuda(), pred_HWC.cuda(), valid_HWC.cuda(), is_back)
 
-def fix_border_with_pymeshlab_fast(meshes: Meshes, poissson_depth=6, simplification=0):
+def fix_border_with_pymeshlab_fast(meshes: Meshes, poissson_depth=7, simplification=0):
     ms = pymeshlab.MeshSet()
     ms.add_mesh(py3dmesh_to_meshlab_mesh(meshes), "cube_vcolor_mesh")
     if simplification > 0:

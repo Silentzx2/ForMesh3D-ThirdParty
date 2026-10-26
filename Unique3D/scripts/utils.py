@@ -217,14 +217,17 @@ def srgb_to_linear(c_srgb):
     return c_linear.clip(0, 1.)
 
 
-def save_py3dmesh_with_trimesh_fast(meshes: Meshes, save_glb_path, apply_sRGB_to_LinearRGB=True):
+def save_py3dmesh_with_trimesh_fast(meshes: Meshes, save_glb_path, apply_sRGB_to_LinearRGB=True, include_vertex_color=False):
     # convert from pytorch3d meshes to trimesh mesh
     vertices = meshes.verts_packed().cpu().float().numpy()
     triangles = meshes.faces_packed().cpu().long().numpy()
-    np_color = meshes.textures.verts_features_packed().cpu().float().numpy()
     normals = None
     try:
-        normals = meshes.verts_normals_packed().cpu().float().numpy()
+        norm_t = meshes.verts_normals_packed()
+        if norm_t is not None and norm_t.numel() > 0:
+            norm_np = norm_t.cpu().float().numpy()
+            if norm_np.shape[0] == vertices.shape[0]:
+                normals = norm_np
     except Exception:
         normals = None
 
@@ -234,32 +237,56 @@ def save_py3dmesh_with_trimesh_fast(meshes: Meshes, save_glb_path, apply_sRGB_to
         if normals is not None:
             normals[:, [0, 2]] = -normals[:, [0, 2]]
 
-    if apply_sRGB_to_LinearRGB:
-        np_color = srgb_to_linear(np_color)
-    assert vertices.shape[0] == np_color.shape[0]
-    assert np_color.shape[1] == 3
-    assert 0 <= np_color.min() and np_color.max() <= 1, f"min={np_color.min()}, max={np_color.max()}"
     t_kwargs = {"process": False}
-    if normals is not None:
+    if normals is not None and normals.shape[0] == vertices.shape[0]:
         t_kwargs["vertex_normals"] = normals
-    mesh = trimesh.Trimesh(vertices=vertices, faces=triangles, vertex_colors=np_color, **t_kwargs)
+
+    np_color = None
+    if include_vertex_color and getattr(meshes, "textures", None) is not None:
+        try:
+            np_color = meshes.textures.verts_features_packed().cpu().float().numpy()
+            if apply_sRGB_to_LinearRGB and np_color is not None:
+                np_color = srgb_to_linear(np_color)
+            if np_color is not None and np_color.shape[0] == vertices.shape[0] and np_color.shape[1] == 3:
+                t_kwargs["vertex_colors"] = np_color
+        except Exception:
+            np_color = None
+
+    mesh = trimesh.Trimesh(vertices=vertices, faces=triangles, **t_kwargs)
     mesh.remove_unreferenced_vertices()
+
+    # Automatically purge floating disconnected debris and shards
+    try:
+        components = mesh.split(only_watertight=False)
+        if len(components) > 1:
+            total_f = len(mesh.faces)
+            significant = [c for c in components if len(c.faces) >= max(30, int(total_f * 0.05))]
+            if significant:
+                mesh = trimesh.util.concatenate(significant)
+            else:
+                mesh = max(components, key=lambda c: len(c.faces))
+    except Exception:
+        pass
+
     # save mesh
     mesh.export(save_glb_path)
-    if save_glb_path.endswith(".glb"):
-        fix_vert_color_glb(save_glb_path)
+    if save_glb_path.endswith(".glb") and np_color is not None:
+        try:
+            fix_vert_color_glb(save_glb_path)
+        except Exception:
+            pass
     print(f"saving to {save_glb_path}")
 
 
-def save_glb_and_video(save_mesh_prefix: str, meshes: Meshes, with_timestamp=True, dist=3.5, azim_offset=180, resolution=512, fov_in_degrees=1 / 1.15, cam_type="ortho", view_padding=60, export_video=True) -> Tuple[str, str]:
+def save_glb_and_video(save_mesh_prefix: str, meshes: Meshes, with_timestamp=True, dist=3.5, azim_offset=180, resolution=512, fov_in_degrees=1 / 1.15, cam_type="ortho", view_padding=60, export_video=True, include_vertex_color=False) -> Tuple[str, str]:
     import time
     if '.' in save_mesh_prefix:
         save_mesh_prefix = ".".join(save_mesh_prefix.split('.')[:-1])
     if with_timestamp:
         save_mesh_prefix = save_mesh_prefix + f"_{int(time.time())}"
     ret_mesh = save_mesh_prefix + ".glb"
-    # optimizied version
-    save_py3dmesh_with_trimesh_fast(meshes, ret_mesh)
+    # optimized version
+    save_py3dmesh_with_trimesh_fast(meshes, ret_mesh, include_vertex_color=include_vertex_color)
     return ret_mesh, None
 
 
@@ -267,12 +294,39 @@ def simple_clean_mesh(pyml_mesh: ml.Mesh, apply_smooth=True, stepsmoothnum=1, ap
     ms = ml.MeshSet()
     ms.add_mesh(pyml_mesh, "cube_mesh")
     
-    if apply_smooth:
-        ms.apply_filter("apply_coord_laplacian_smoothing", stepsmoothnum=stepsmoothnum, cotangentweight=True)
-    if apply_sub_divide:    # 5s, slow
+    # 1. Non-manifold repair and degenerate geometry cleanup
+    try:
+        ms.apply_filter("meshing_remove_duplicate_faces")
+        ms.apply_filter("meshing_remove_null_faces")
         ms.apply_filter("meshing_repair_non_manifold_vertices")
         ms.apply_filter("meshing_repair_non_manifold_edges", method='Remove Faces')
-        ms.apply_filter("meshing_surface_subdivision_loop", iterations=2, threshold=PercentageValue(sub_divide_threshold))
+    except Exception:
+        pass
+
+    # 2. Prune small disconnected floating fragments
+    try:
+        ms.apply_filter("meshing_remove_connected_component_by_diameter", mincomponentdiag=PercentageValue(10))
+    except Exception:
+        pass
+
+    # 3. Controlled Laplacian smoothing to remove high-frequency gradient noise / spikes
+    if apply_smooth and stepsmoothnum > 0:
+        try:
+            ms.apply_filter("apply_coord_laplacian_smoothing", stepsmoothnum=stepsmoothnum, cotangentweight=True)
+        except Exception:
+            pass
+
+    if apply_sub_divide:
+        try:
+            ms.apply_filter("meshing_surface_subdivision_loop", iterations=1, threshold=PercentageValue(sub_divide_threshold))
+        except Exception:
+            pass
+
+    try:
+        ms.apply_filter("meshing_remove_unreferenced_vertices")
+    except Exception:
+        pass
+
     return meshlab_mesh_to_py3dmesh(ms.current_mesh())
 
 
@@ -293,20 +347,24 @@ def expand2square(pil_img, background_color):
 def simple_preprocess(input_image, rembg_session=session, background_color=255):
     RES = 2048
     input_image.thumbnail([RES, RES], Image.Resampling.LANCZOS)
-    if input_image.mode != 'RGBA':
+    if input_image.mode != 'RGBA' or np.asarray(input_image)[:, :, -1].mean() > 245.0:
         image_rem = input_image.convert('RGBA')
-        input_image = remove(image_rem, alpha_matting=False, session=rembg_session)
+        try:
+            input_image = remove(image_rem, alpha_matting=False, session=rembg_session)
+        except Exception:
+            input_image = image_rem
 
     arr = np.asarray(input_image)
     alpha = np.asarray(input_image)[:, :, -1]
     x_nonzero = np.nonzero((alpha > 60).sum(axis=1))
     y_nonzero = np.nonzero((alpha > 60).sum(axis=0))
-    x_min = int(x_nonzero[0].min())
-    y_min = int(y_nonzero[0].min())
-    x_max = int(x_nonzero[0].max())
-    y_max = int(y_nonzero[0].max())
-    arr = arr[x_min: x_max, y_min: y_max]
-    input_image = Image.fromarray(arr)
+    if len(x_nonzero[0]) > 0 and len(y_nonzero[0]) > 0:
+        x_min = int(x_nonzero[0].min())
+        y_min = int(y_nonzero[0].min())
+        x_max = int(x_nonzero[0].max())
+        y_max = int(y_nonzero[0].max())
+        arr = arr[x_min: x_max, y_min: y_max]
+        input_image = Image.fromarray(arr)
     input_image = expand2square(input_image, (background_color, background_color, background_color, 0))
     return input_image
 
