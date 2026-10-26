@@ -97,8 +97,27 @@ class Trellis2TexturingPipeline(Pipeline):
         pipeline.shape_slat_normalization = args['shape_slat_normalization']
         pipeline.tex_slat_normalization = args['tex_slat_normalization']
 
-        pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**args['image_cond_model']['args'])
-        pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])
+        # Use ungated mirror for DinoV3 if needed
+        image_cond_args = args['image_cond_model']['args'].copy() if 'args' in args['image_cond_model'] else {}
+        if image_cond_args.get('model_name') == 'facebook/dinov3-vitl16-pretrain-lvd1689m':
+            image_cond_args['model_name'] = 'camenduru/dinov3-vitl16-pretrain-lvd1689m'
+        try:
+            pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**image_cond_args)
+        except Exception:
+            pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**args['image_cond_model']['args'])
+
+        rembg_args = args['rembg_model']['args'].copy() if 'args' in args['rembg_model'] else {}
+        try:
+            pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**rembg_args)
+        except Exception:
+            if rembg_args.get('model_name') == 'briaai/RMBG-2.0':
+                rembg_args['model_name'] = 'ZhengPeng7/BiRefNet'
+                try:
+                    pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**rembg_args)
+                except Exception:
+                    pipeline.rembg_model = None
+            else:
+                pipeline.rembg_model = None
 
         pipeline.low_vram = args.get('low_vram', True)
         pipeline.pbr_attr_layout = {

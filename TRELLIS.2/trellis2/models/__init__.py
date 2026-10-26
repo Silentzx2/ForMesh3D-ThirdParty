@@ -64,7 +64,10 @@ def from_pretrained(path: str, **kwargs):
         config = json.load(f)
     model = __getattr__(config['name'])(**config['args'], **kwargs)
     state = load_file(model_file)
-    model.load_state_dict(state, strict=False)
+    try:
+        model.load_state_dict(state, strict=False, assign=True)
+    except (TypeError, Exception):
+        model.load_state_dict(state, strict=False)
     del state
     import gc
     gc.collect()

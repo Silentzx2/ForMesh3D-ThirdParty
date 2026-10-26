@@ -47,6 +47,13 @@ class Pipeline:
                     _models[k] = models.from_pretrained(v)
                 else:
                     raise
+            import gc
+            gc.collect()
+            if torch.cuda.is_available():
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
 
         new_pipeline = cls(_models)
         new_pipeline._pretrained_args = args
