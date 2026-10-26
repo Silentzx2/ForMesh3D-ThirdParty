@@ -28,28 +28,33 @@ def reconstruct_stage1(pils: List[Image.Image], steps=100, vertices=None, faces=
 
     mask = target_images[..., -1] < 0.5
 
-    for i in tqdm(range(steps)):
-        opt.zero_grad()
-        opt._lr *= decay
-        normals = calc_vertex_normals(vertices,faces)
-        images = renderer.render(vertices,normals,faces)
-        
-        loss_expand = 0.5 * ((vertices+normals).detach() - vertices).pow(2).mean()
-        
-        t_mask = images[..., -1] > 0.5
-        loss_target_l2 = (images[t_mask] - target_images[t_mask]).abs().pow(2).mean()
-        loss_alpha_target_mask_l2 = (images[..., -1][mask] - target_images[..., -1][mask]).pow(2).mean()
-        
-        loss = loss_target_l2 + loss_alpha_target_mask_l2 + loss_expand * loss_expansion_weight
-        
-        # out of box
-        loss_oob = (vertices.abs() > 0.99).float().mean() * 10
-        loss = loss + loss_oob
-        
-        loss.backward()
-        opt.step()
+    with torch.enable_grad():
+        opt.vertices.requires_grad_(True)
+        vertices = opt.vertices
+        for i in tqdm(range(steps)):
+            opt.zero_grad()
+            opt._lr *= decay
+            opt.vertices.requires_grad_(True)
+            vertices = opt.vertices
+            normals = calc_vertex_normals(vertices,faces)
+            images = renderer.render(vertices,normals,faces)
+            
+            loss_expand = 0.5 * ((vertices+normals).detach() - vertices).pow(2).mean()
+            
+            t_mask = images[..., -1] > 0.5
+            loss_target_l2 = (images[t_mask] - target_images[t_mask]).abs().pow(2).mean()
+            loss_alpha_target_mask_l2 = (images[..., -1][mask] - target_images[..., -1][mask]).pow(2).mean()
+            
+            loss = loss_target_l2 + loss_alpha_target_mask_l2 + loss_expand * loss_expansion_weight
+            
+            # out of box
+            loss_oob = (vertices.abs() > 0.99).float().mean() * 10
+            loss = loss + loss_oob
+            
+            loss.backward()
+            opt.step()
 
-        vertices,faces = opt.remesh(poisson=False)
+            vertices,faces = opt.remesh(poisson=False)
 
     vertices, faces = vertices.detach(), faces.detach()
     
