@@ -203,8 +203,8 @@ def fix_vert_color_glb(mesh_path):
     obj1.materials.append(Material(
         pbrMetallicRoughness = PbrMetallicRoughness(
             baseColorFactor = [1.0, 1.0, 1.0, 1.0],
-            metallicFactor = 0.,
-            roughnessFactor = 1.0,
+            metallicFactor = 0.05,
+            roughnessFactor = 0.40,
         ),
         emissiveFactor = [0.0, 0.0, 0.0],
         doubleSided = True,
@@ -222,16 +222,27 @@ def save_py3dmesh_with_trimesh_fast(meshes: Meshes, save_glb_path, apply_sRGB_to
     vertices = meshes.verts_packed().cpu().float().numpy()
     triangles = meshes.faces_packed().cpu().long().numpy()
     np_color = meshes.textures.verts_features_packed().cpu().float().numpy()
+    normals = None
+    try:
+        normals = meshes.verts_normals_packed().cpu().float().numpy()
+    except Exception:
+        normals = None
+
     if save_glb_path.endswith(".glb"):
         # rotate 180 along +Y
         vertices[:, [0, 2]] = -vertices[:, [0, 2]]
+        if normals is not None:
+            normals[:, [0, 2]] = -normals[:, [0, 2]]
 
     if apply_sRGB_to_LinearRGB:
         np_color = srgb_to_linear(np_color)
     assert vertices.shape[0] == np_color.shape[0]
     assert np_color.shape[1] == 3
     assert 0 <= np_color.min() and np_color.max() <= 1, f"min={np_color.min()}, max={np_color.max()}"
-    mesh = trimesh.Trimesh(vertices=vertices, faces=triangles, vertex_colors=np_color)
+    t_kwargs = {"process": False}
+    if normals is not None:
+        t_kwargs["vertex_normals"] = normals
+    mesh = trimesh.Trimesh(vertices=vertices, faces=triangles, vertex_colors=np_color, **t_kwargs)
     mesh.remove_unreferenced_vertices()
     # save mesh
     mesh.export(save_glb_path)
@@ -257,7 +268,7 @@ def simple_clean_mesh(pyml_mesh: ml.Mesh, apply_smooth=True, stepsmoothnum=1, ap
     ms.add_mesh(pyml_mesh, "cube_mesh")
     
     if apply_smooth:
-        ms.apply_filter("apply_coord_laplacian_smoothing", stepsmoothnum=stepsmoothnum, cotangentweight=False)
+        ms.apply_filter("apply_coord_laplacian_smoothing", stepsmoothnum=stepsmoothnum, cotangentweight=True)
     if apply_sub_divide:    # 5s, slow
         ms.apply_filter("meshing_repair_non_manifold_vertices")
         ms.apply_filter("meshing_repair_non_manifold_edges", method='Remove Faces')

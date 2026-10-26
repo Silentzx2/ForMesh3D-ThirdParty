@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
@@ -8,6 +9,8 @@ from diso import DiffDMC
 import torch.nn.functional as F
 
 from triposg.utils.typing import *
+
+logger = logging.getLogger(__name__)
 
 def generate_dense_grid_points_gpu(bbox_min: torch.Tensor,
                                    bbox_max: torch.Tensor,
@@ -180,21 +183,32 @@ def hierarchical_extract_geometry(geometric_func: Callable,
         # print("all logits shape = ", all_logits.shape)
 
         indices = all_logits[..., :3]
-        indices = indices * (normalize_offset / abs(bounds[0]))  + normalize_offset
-        indices = indices.type(torch.IntTensor)
-        values = all_logits[:, 3]
+        indices = indices * (normalize_offset / abs(bounds[0])) + normalize_offset
+        indices = torch.clamp(indices.long(), 0, grid_size - 1).to(high_res_occupancy.device)
+        values = all_logits[:, 3].to(dtype=high_res_occupancy.dtype, device=high_res_occupancy.device)
         # breakpoint()
         high_res_occupancy[indices[:, 0], indices[:, 1], indices[:, 2]] = values
         grid_logits = high_res_occupancy
         torch.cuda.empty_cache()
-    mesh_v_f = []
+    mesh_v_f = (None, None)
     try:
         print("final grids shape = ", grid_logits.shape)
-        vertices, faces, normals, _ = measure.marching_cubes(grid_logits.float().cpu().numpy(), 0, method="lewiner")
+        grid_np = grid_logits.float().detach().cpu().numpy()
+        val_min = float(np.nanmin(grid_np)) if grid_np.size > 0 else float("nan")
+        val_max = float(np.nanmax(grid_np)) if grid_np.size > 0 else float("nan")
+        if val_min > 0 or val_max < 0:
+            logger.warning(
+                f"grid_logits has no zero-crossing (min={val_min:.4f}, max={val_max:.4f}). Marching cubes cannot extract surface."
+            )
+            print(f"Warning: grid_logits has no zero-crossing (min={val_min:.4f}, max={val_max:.4f}). Marching cubes cannot extract surface.")
+        vertices, faces, normals, _ = measure.marching_cubes(grid_np, 0, method="lewiner")
         vertices = vertices / (2**hierarchical_octree_depth) * bbox_size.cpu().numpy() + bbox_min.cpu().numpy()
         mesh_v_f = (vertices.astype(np.float32), np.ascontiguousarray(faces))
     except Exception as e:
-        print(e)
+        val_min = float(grid_logits.min().item()) if grid_logits.numel() > 0 else float("nan")
+        val_max = float(grid_logits.max().item()) if grid_logits.numel() > 0 else float("nan")
+        logger.warning(f"Marching cubes extraction failed: {e} (grid min={val_min:.4f}, max={val_max:.4f})")
+        print(f"Marching cubes extraction failed: {e} (grid min={val_min:.4f}, max={val_max:.4f})")
         torch.cuda.empty_cache()
         mesh_v_f = (None, None)
 

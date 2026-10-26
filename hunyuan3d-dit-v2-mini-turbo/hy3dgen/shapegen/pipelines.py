@@ -100,13 +100,19 @@ def export_to_trimesh(mesh_output):
                 outputs.append(None)
             else:
                 mesh.mesh_f = mesh.mesh_f[:, ::-1]
-                mesh_output = trimesh.Trimesh(mesh.mesh_v, mesh.mesh_f)
-                outputs.append(mesh_output)
+                t_kwargs = {"process": False}
+                if getattr(mesh, "mesh_n", None) is not None:
+                    t_kwargs["vertex_normals"] = mesh.mesh_n
+                mesh_trimesh = trimesh.Trimesh(mesh.mesh_v, mesh.mesh_f, **t_kwargs)
+                outputs.append(mesh_trimesh)
         return outputs
     else:
         mesh_output.mesh_f = mesh_output.mesh_f[:, ::-1]
-        mesh_output = trimesh.Trimesh(mesh_output.mesh_v, mesh_output.mesh_f)
-        return mesh_output
+        t_kwargs = {"process": False}
+        if getattr(mesh_output, "mesh_n", None) is not None:
+            t_kwargs["vertex_normals"] = mesh_output.mesh_n
+        mesh_trimesh = trimesh.Trimesh(mesh_output.mesh_v, mesh_output.mesh_f, **t_kwargs)
+        return mesh_trimesh
 
 
 def get_obj_from_str(string, reload=False):

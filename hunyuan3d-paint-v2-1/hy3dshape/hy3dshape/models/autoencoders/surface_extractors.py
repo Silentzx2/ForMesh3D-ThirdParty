@@ -20,9 +20,10 @@ from skimage import measure
 
 
 class Latent2MeshOutput:
-    def __init__(self, mesh_v=None, mesh_f=None):
+    def __init__(self, mesh_v=None, mesh_f=None, mesh_n=None):
         self.mesh_v = mesh_v
         self.mesh_f = mesh_f
+        self.mesh_n = mesh_n
 
 
 def center_vertices(vertices):
@@ -85,10 +86,16 @@ class SurfaceExtractor:
         outputs = []
         for i in range(grid_logits.shape[0]):
             try:
-                vertices, faces = self.run(grid_logits[i], **kwargs)
+                res = self.run(grid_logits[i], **kwargs)
+                if isinstance(res, tuple) and len(res) == 3:
+                    vertices, faces, normals = res
+                    normals = normals.astype(np.float32)
+                else:
+                    vertices, faces = res
+                    normals = None
                 vertices = vertices.astype(np.float32)
                 faces = np.ascontiguousarray(faces)
-                outputs.append(Latent2MeshOutput(mesh_v=vertices, mesh_f=faces))
+                outputs.append(Latent2MeshOutput(mesh_v=vertices, mesh_f=faces, mesh_n=normals))
 
             except Exception:
                 import traceback
@@ -121,7 +128,9 @@ class MCSurfaceExtractor(SurfaceExtractor):
                                                              method="lewiner")
         grid_size, bbox_min, bbox_size = self._compute_box_stat(bounds, octree_resolution)
         vertices = vertices / grid_size * bbox_size + bbox_min
-        return vertices, faces
+        norms = np.linalg.norm(normals, axis=1, keepdims=True)
+        normals = np.where(norms > 1e-12, normals / np.maximum(norms, 1e-12), 0.0)
+        return vertices, faces, normals
 
 
 class DMCSurfaceExtractor(SurfaceExtractor):

@@ -334,7 +334,14 @@ class TripoSGPipeline(DiffusionPipeline, TransformerDiffusionMixin):
                 bounds=bounds,
                 octree_depth=flash_octree_depth,
             )
-        meshes = [trimesh.Trimesh(mesh_v_f[0].astype(np.float32), mesh_v_f[1]) for mesh_v_f in output]
+        meshes = []
+        for mesh_v_f in output:
+            if mesh_v_f is not None and mesh_v_f[0] is not None and len(mesh_v_f[0]) > 0:
+                faces = np.ascontiguousarray(mesh_v_f[1]) if mesh_v_f[1] is not None else np.zeros((0, 3), dtype=np.int32)
+                meshes.append(trimesh.Trimesh(mesh_v_f[0].astype(np.float32), faces, process=False))
+            else:
+                logger.warning("Empty or invalid mesh output encountered during TripoSG geometry extraction.")
+                meshes.append(None)
         
         # Offload all models
         self.maybe_free_model_hooks()
