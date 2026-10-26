@@ -18,20 +18,20 @@ def fast_geo(front_normal: Image.Image, back_normal: Image.Image, side_normal: I
     import time
     if front_normal.mode == "RGB":
         front_normal = simple_remove(front_normal, run_sr=False)
-    front_normal = front_normal.resize((192, 192))
+    front_normal = front_normal.resize((512, 512))
     if back_normal.mode == "RGB":
         back_normal = simple_remove(back_normal, run_sr=False)
-    back_normal = back_normal.resize((192, 192))
+    back_normal = back_normal.resize((512, 512))
     if side_normal.mode == "RGB":
         side_normal = simple_remove(side_normal, run_sr=False)
-    side_normal = side_normal.resize((192, 192))
+    side_normal = side_normal.resize((512, 512))
     
     # build mesh with front back projection # ~3s
     side_w_over_h = calc_w_over_h(side_normal)
     mesh_front = build_mesh(front_normal, front_normal, clamp_min=clamp, scale=side_w_over_h, init_type=init_type)
     mesh_back = build_mesh(back_normal, back_normal, is_back=True, clamp_min=clamp, scale=side_w_over_h, init_type=init_type)
     meshes = join_meshes_as_scene([mesh_front, mesh_back])
-    meshes = fix_border_with_pymeshlab_fast(meshes, poissson_depth=7, simplification=8000)
+    meshes = fix_border_with_pymeshlab_fast(meshes, poissson_depth=8, simplification=0)
     return meshes
 
 def refine_rgb(rgb_pils, front_pil):
@@ -102,10 +102,10 @@ def geo_reconstruct(rgb_pils, normal_pils, front_pil, do_refine=False, predict_n
         if init_type in ["std", "thin"]:
             meshes = fast_geo(normal_stg1[0], normal_stg1[2], normal_stg1[1], init_type=init_type)
             vertices, faces, _ = from_py3d_mesh(meshes)
-            vertices, faces = reconstruct_stage1(normal_stg1, steps=200, vertices=vertices, faces=faces, start_edge_len=0.1, end_edge_len=0.02, gain=0.05, return_mesh=False, loss_expansion_weight=expansion_weight)
+            vertices, faces = reconstruct_stage1(normal_stg1, steps=200, vertices=vertices, faces=faces, start_edge_len=0.08, end_edge_len=0.01, gain=0.05, return_mesh=False, loss_expansion_weight=expansion_weight)
         elif init_type in ["ball"]:
-            vertices, faces = reconstruct_stage1(normal_stg1, steps=200, end_edge_len=0.01, return_mesh=False, loss_expansion_weight=expansion_weight)
-        vertices, faces = run_mesh_refine(vertices, faces, rm_normals, steps=100, start_edge_len=0.02, end_edge_len=0.005, decay=0.99, update_normal_interval=20, update_warmup=5, return_mesh=False, process_inputs=False, process_outputs=False)
+            vertices, faces = reconstruct_stage1(normal_stg1, steps=200, end_edge_len=0.008, return_mesh=False, loss_expansion_weight=expansion_weight)
+        vertices, faces = run_mesh_refine(vertices, faces, rm_normals, steps=120, start_edge_len=0.01, end_edge_len=0.0022, decay=0.99, update_normal_interval=20, update_warmup=5, return_mesh=False, process_inputs=False, process_outputs=False)
     meshes = simple_clean_mesh(to_pyml_mesh(vertices, faces), apply_smooth=True, stepsmoothnum=1, apply_sub_divide=False, sub_divide_threshold=0.25).to("cuda")
     if apply_texture:
         new_meshes = multiview_color_projection(meshes, img_list, resolution=1024, device="cuda", complete_unseen=True, confidence_threshold=0.2, cameras_list = get_cameras_list([0, 90, 180, 270], "cuda", focal=1))
