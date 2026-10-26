@@ -225,9 +225,10 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         # Sample sparse structure latent
         flow_model = self.models['sparse_structure_flow_model']
         target_dev = self.device if self.low_vram else (next(flow_model.parameters()).device if hasattr(flow_model, "parameters") else self.device)
+        target_dtype = getattr(flow_model, 'dtype', None) or (next(flow_model.parameters()).dtype if hasattr(flow_model, 'parameters') else torch.float32)
         reso = flow_model.resolution
         in_channels = flow_model.in_channels
-        noise = torch.randn(num_samples, in_channels, reso, reso, reso, device=target_dev)
+        noise = torch.randn(num_samples, in_channels, reso, reso, reso, device=target_dev, dtype=target_dtype)
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
@@ -275,9 +276,10 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         """
         # Sample structured latent
         target_dev = self.device if self.low_vram else (next(flow_model.parameters()).device if hasattr(flow_model, "parameters") else self.device)
+        target_dtype = getattr(flow_model, 'dtype', None) or (next(flow_model.parameters()).dtype if hasattr(flow_model, 'parameters') else torch.float32)
         coords = coords.to(target_dev)
         noise = SparseTensor(
-            feats=torch.randn(coords.shape[0], flow_model.in_channels, device=target_dev),
+            feats=torch.randn(coords.shape[0], flow_model.in_channels, device=target_dev, dtype=target_dtype),
             coords=coords,
         )
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
@@ -323,9 +325,10 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         """
         # LR
         lr_dev = self.device if self.low_vram else (next(flow_model_lr.parameters()).device if hasattr(flow_model_lr, "parameters") else self.device)
+        lr_dtype = getattr(flow_model_lr, 'dtype', None) or (next(flow_model_lr.parameters()).dtype if hasattr(flow_model_lr, 'parameters') else torch.float32)
         coords_lr = coords.to(lr_dev)
         noise = SparseTensor(
-            feats=torch.randn(coords_lr.shape[0], flow_model_lr.in_channels, device=lr_dev),
+            feats=torch.randn(coords_lr.shape[0], flow_model_lr.in_channels, device=lr_dev, dtype=lr_dtype),
             coords=coords_lr,
         )
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
@@ -371,9 +374,10 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         
         # Sample structured latent
         hr_dev = self.device if self.low_vram else (next(flow_model.parameters()).device if hasattr(flow_model, "parameters") else self.device)
+        hr_dtype = getattr(flow_model, 'dtype', None) or (next(flow_model.parameters()).dtype if hasattr(flow_model, 'parameters') else torch.float32)
         coords_hr = coords.to(hr_dev)
         noise = SparseTensor(
-            feats=torch.randn(coords_hr.shape[0], flow_model.in_channels, device=hr_dev),
+            feats=torch.randn(coords_hr.shape[0], flow_model.in_channels, device=hr_dev, dtype=hr_dtype),
             coords=coords_hr,
         )
         cond = {k: v.to(hr_dev) if hasattr(v, 'to') else v for k, v in cond.items()}
@@ -439,13 +443,15 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         """
         # Sample structured latent
         target_dev = self.device if self.low_vram else (next(flow_model.parameters()).device if hasattr(flow_model, "parameters") else self.device)
+        fm = flow_model if isinstance(flow_model, nn.Module) else (flow_model[0] if isinstance(flow_model, (list, tuple)) and len(flow_model) > 0 else flow_model)
+        target_dtype = getattr(fm, 'dtype', None) or (next(fm.parameters()).dtype if hasattr(fm, 'parameters') else torch.float32)
         shape_slat = shape_slat.to(target_dev)
         std = torch.tensor(self.shape_slat_normalization['std'], device=target_dev)[None]
         mean = torch.tensor(self.shape_slat_normalization['mean'], device=target_dev)[None]
         shape_slat = (shape_slat - mean) / std
 
         in_channels = flow_model.in_channels if isinstance(flow_model, nn.Module) else flow_model[0].in_channels
-        noise = shape_slat.replace(feats=torch.randn(shape_slat.coords.shape[0], in_channels - shape_slat.feats.shape[1], device=target_dev))
+        noise = shape_slat.replace(feats=torch.randn(shape_slat.coords.shape[0], in_channels - shape_slat.feats.shape[1], device=target_dev, dtype=target_dtype))
         sampler_params = {**self.tex_slat_sampler_params, **sampler_params}
         cond = {k: v.to(target_dev) if hasattr(v, 'to') else v for k, v in cond.items()}
         if self.low_vram:

@@ -4,7 +4,10 @@ import math
 import time
 import torch
 import numpy as np
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 from PIL import Image
 
 os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '1'
@@ -13,8 +16,15 @@ os.environ.setdefault("ATTN_BACKEND", "flash_attn")
 os.environ["FLEX_GEMM_AUTOTUNE_CACHE_PATH"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'autotune_cache.json')
 os.environ["FLEX_GEMM_AUTOTUNER_VERBOSE"] = '1'
 
-from pixal3d.pipelines import Pixal3DImageTo3DPipeline
-import o_voxel
+try:
+    from pixal3d.pipelines import Pixal3DImageTo3DPipeline
+except ImportError:
+    Pixal3DImageTo3DPipeline = None
+
+try:
+    import o_voxel
+except ImportError:
+    o_voxel = None
 
 # ============================================================================
 # Constants & Defaults

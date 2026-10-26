@@ -48,7 +48,8 @@ class SparseGroupNorm32(SparseGroupNorm):
     """
     def forward(self, x: VarLenTensor) -> VarLenTensor:
         x_dtype = x.dtype
-        x = manual_cast(x, torch.float32)
+        target_dtype = self.weight.dtype if self.weight is not None else torch.float32
+        x = manual_cast(x, target_dtype)
         o = super().forward(x)
         return manual_cast(o, x_dtype)
 
@@ -59,6 +60,7 @@ class SparseLayerNorm32(SparseLayerNorm):
     """
     def forward(self, x: VarLenTensor) -> VarLenTensor:
         x_dtype = x.dtype
-        x = manual_cast(x, torch.float32)
+        target_dtype = self.weight.dtype if self.weight is not None else torch.float32
+        x = manual_cast(x, target_dtype)
         o = super().forward(x)
         return manual_cast(o, x_dtype)

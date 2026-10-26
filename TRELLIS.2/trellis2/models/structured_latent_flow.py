@@ -91,6 +91,13 @@ class SLatFlowModel(nn.Module):
         """
         return next(self.parameters()).device
 
+    def _apply(self, fn):
+        super()._apply(fn)
+        param = next(self.parameters(), None)
+        if param is not None and param.is_floating_point():
+            self.dtype = param.dtype
+        return self
+
     def convert_to(self, dtype: torch.dtype) -> None:
         """
         Convert the torso of the model to the specified dtype.
@@ -175,27 +182,32 @@ class SLatFlowModel(nn.Module):
         **kwargs
     ) -> sp.SparseTensor:
         if concat_cond is not None:
+            if hasattr(concat_cond, 'feats') and hasattr(x, 'feats') and concat_cond.feats.dtype != x.feats.dtype:
+                concat_cond = concat_cond.replace(feats=concat_cond.feats.to(x.feats.dtype))
             x = sp.sparse_cat([x, concat_cond], dim=-1)
         if isinstance(cond, list):
             cond = sp.VarLenTensor.from_tensor_list(cond)
 
         h = self.input_layer(x)
-        h = manual_cast(h, self.dtype)
+        torso_dtype = next(self.blocks.parameters()).dtype if hasattr(self, 'blocks') and len(self.blocks) > 0 else self.dtype
+        h = manual_cast(h, torso_dtype)
         t_emb = self.t_embedder(t)
         if self.share_mod:
             t_emb = self.adaLN_modulation(t_emb)
-        t_emb = manual_cast(t_emb, self.dtype)
-        cond = manual_cast(cond, self.dtype)
+        t_emb = manual_cast(t_emb, torso_dtype)
+        cond = manual_cast(cond, torso_dtype)
 
         if self.pe_mode == "ape":
             pe = self.pos_embedder(h.coords[:, 1:])
-            h = h + manual_cast(pe, self.dtype)
+            h = h + manual_cast(pe, torso_dtype)
         for block in self.blocks:
             h = block(h, t_emb, cond)
 
-        h = manual_cast(h, x.dtype)
+        out_dtype = self.out_layer.weight.dtype if hasattr(self.out_layer, 'weight') else self.dtype
+        h = manual_cast(h, out_dtype)
         h = h.replace(F.layer_norm(h.feats, h.feats.shape[-1:]))
         h = self.out_layer(h)
+        h = manual_cast(h, x.dtype)
         return h
 
 

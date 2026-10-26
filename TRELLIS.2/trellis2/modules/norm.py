@@ -6,7 +6,8 @@ from .utils import manual_cast
 class LayerNorm32(nn.LayerNorm):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_dtype = x.dtype
-        x = manual_cast(x, torch.float32)
+        target_dtype = self.weight.dtype if self.weight is not None else torch.float32
+        x = manual_cast(x, target_dtype)
         o = super().forward(x)
         return manual_cast(o, x_dtype)
     
@@ -17,7 +18,8 @@ class GroupNorm32(nn.GroupNorm):
     """
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_dtype = x.dtype
-        x = manual_cast(x, torch.float32)
+        target_dtype = self.weight.dtype if self.weight is not None else torch.float32
+        x = manual_cast(x, target_dtype)
         o = super().forward(x)
         return manual_cast(o, x_dtype)
     

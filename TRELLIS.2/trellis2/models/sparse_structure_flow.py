@@ -49,6 +49,8 @@ class TimestepEmbedder(nn.Module):
 
     def forward(self, t):
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
+        if hasattr(self, 'mlp') and len(self.mlp) > 0 and hasattr(self.mlp[0], 'weight'):
+            t_freq = t_freq.to(self.mlp[0].weight.dtype)
         t_emb = self.mlp(t_freq)
         return t_emb
 
@@ -146,6 +148,13 @@ class SparseStructureFlowModel(nn.Module):
         """
         return next(self.parameters()).device
 
+    def _apply(self, fn):
+        super()._apply(fn)
+        param = next(self.parameters(), None)
+        if param is not None and param.is_floating_point():
+            self.dtype = param.dtype
+        return self
+
     def convert_to(self, dtype: torch.dtype) -> None:
         """
         Convert the torso of the model to the specified dtype.
@@ -227,20 +236,29 @@ class SparseStructureFlowModel(nn.Module):
 
         h = x.view(*x.shape[:2], -1).permute(0, 2, 1).contiguous()
 
+        input_dtype = self.input_layer.weight.dtype if hasattr(self.input_layer, 'weight') else self.dtype
+        if h.dtype != input_dtype:
+            h = h.to(input_dtype)
+
         h = self.input_layer(h)
         if self.pe_mode == "ape":
-            h = h + self.pos_emb[None]
+            h = h + self.pos_emb[None].to(h.dtype)
         t_emb = self.t_embedder(t)
         if self.share_mod:
+            if hasattr(self.adaLN_modulation[-1], 'weight') and t_emb.dtype != self.adaLN_modulation[-1].weight.dtype:
+                t_emb = t_emb.to(self.adaLN_modulation[-1].weight.dtype)
             t_emb = self.adaLN_modulation(t_emb)
-        t_emb = manual_cast(t_emb, self.dtype)
-        h = manual_cast(h, self.dtype)
-        cond = manual_cast(cond, self.dtype)
+        torso_dtype = next(self.blocks.parameters()).dtype if hasattr(self, 'blocks') and len(self.blocks) > 0 else self.dtype
+        t_emb = manual_cast(t_emb, torso_dtype)
+        h = manual_cast(h, torso_dtype)
+        cond = manual_cast(cond, torso_dtype)
         for block in self.blocks:
             h = block(h, t_emb, cond, self.rope_phases)
-        h = manual_cast(h, x.dtype)
+        out_dtype = self.out_layer.weight.dtype if hasattr(self.out_layer, 'weight') else self.dtype
+        h = manual_cast(h, out_dtype)
         h = F.layer_norm(h, h.shape[-1:])
         h = self.out_layer(h)
+        h = manual_cast(h, x.dtype)
 
         h = h.permute(0, 2, 1).view(h.shape[0], h.shape[2], *[self.resolution] * 3).contiguous()
 

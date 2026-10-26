@@ -12,4 +12,7 @@ class SparseLinear(nn.Linear):
         super(SparseLinear, self).__init__(in_features, out_features, bias)
 
     def forward(self, input: VarLenTensor) -> VarLenTensor:
-        return input.replace(super().forward(input.feats))
+        feats = input.feats
+        if feats.dtype != self.weight.dtype:
+            feats = feats.to(self.weight.dtype)
+        return input.replace(super().forward(feats))

@@ -41,29 +41,50 @@ def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True,
     tr, pipe = get_pipeline()
     if torch.cuda.is_available():
         if hasattr(pipe, "device") and pipe.device.type != "cuda":
-            pipe.to("cuda")
-        if hasattr(pipe, "enable_attention_slicing"):
             try:
-                pipe.enable_attention_slicing()
+                pipe.to("cuda")
             except Exception:
                 pass
+        if tr is not None and hasattr(tr, "to"):
+            try:
+                tr.to("cuda")
+            except Exception:
+                pass
+        if hasattr(pipe, "enable_attention_slicing"):
+            try:
+                pipe.enable_attention_slicing(1)
+            except Exception:
+                try:
+                    pipe.enable_attention_slicing()
+                except Exception:
+                    pass
         if hasattr(pipe, "enable_vae_slicing"):
             try:
                 pipe.enable_vae_slicing()
             except Exception:
                 pass
+        if hasattr(pipe, "enable_vae_tiling"):
+            try:
+                pipe.enable_vae_tiling()
+            except Exception:
+                pass
 
     img_list = image if isinstance(image, list) else [image]
     img_list = [rgba_to_rgb(i) if i.mode == 'RGBA' else i for i in img_list]
-    images = tr.pipeline_forward(
-        pipeline=pipe,
-        image=img_list,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale, 
-        **kwargs
-    ).images
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+
+    # Process sequential to avoid huge peak attention memory (OOM on 15GB/16GB VRAM)
+    images = []
+    for single_img in img_list:
+        out = tr.pipeline_forward(
+            pipeline=pipe,
+            image=[single_img],
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale, 
+            **kwargs
+        ).images
+        images.extend(out)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     images = simple_remove(images)
     if do_rotate and len(images) > 1:
