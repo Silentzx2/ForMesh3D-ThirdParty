@@ -46,7 +46,10 @@ class Pipeline:
                 if not str(v).startswith("ckpts/") and ("/" in str(v)):
                     _models[k] = models.from_pretrained(v)
                 else:
-                    raise
+                    try:
+                        _models[k] = models.from_pretrained(f"microsoft/TRELLIS.2-4B/{v}")
+                    except Exception:
+                        raise e
             import gc
             gc.collect()
             if torch.cuda.is_available():

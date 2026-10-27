@@ -54,9 +54,19 @@ def from_pretrained(path: str, **kwargs):
         model_file = f"{path}.safetensors"
     else:
         from huggingface_hub import hf_hub_download
-        path_parts = path.split('/')
-        repo_id = f'{path_parts[0]}/{path_parts[1]}'
-        model_name = '/'.join(path_parts[2:])
+        clean_parts = [p for p in path.split('/') if p]
+        if path.startswith('/') or '\\' in path or (clean_parts and clean_parts[0] in ('kaggle', 'root', 'home', 'tmp', 'workspaces')):
+            repo_id = "microsoft/TRELLIS.2-4B"
+            if 'ckpts/' in path:
+                model_name = 'ckpts/' + path.split('ckpts/')[-1]
+            else:
+                model_name = clean_parts[-1] if clean_parts else path
+        elif len(clean_parts) >= 2:
+            repo_id = f'{clean_parts[0]}/{clean_parts[1]}'
+            model_name = '/'.join(clean_parts[2:])
+        else:
+            repo_id = "microsoft/TRELLIS.2-4B"
+            model_name = clean_parts[0] if clean_parts else path
         config_file = hf_hub_download(repo_id, f"{model_name}.json")
         model_file = hf_hub_download(repo_id, f"{model_name}.safetensors")
 
