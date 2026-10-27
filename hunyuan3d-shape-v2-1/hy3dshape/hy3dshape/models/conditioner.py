@@ -98,16 +98,8 @@ class ImageEncoder(nn.Module):
         target_device = self.model.device
         target_dtype = self.model.dtype
 
-        try:
-            if not getattr(image, "is_cuda", False):
-                inputs = self.transform(image.to(torch.float32)).to(target_device, dtype=target_dtype)
-            else:
-                inputs = self.transform(image.to(target_device, dtype=target_dtype))
-        except Exception as e:
-            if "no kernel image is available" in str(e) or "CUDA error" in str(e) or "CUDA" in type(e).__name__:
-                inputs = self.transform(image.cpu().to(torch.float32)).to(target_device, dtype=target_dtype)
-            else:
-                raise
+        # Always run image torchvision transforms on CPU to prevent CUDA kernel arch mismatches on pre-Ampere GPUs (T4 SM 7.5, P100 SM 6.0)
+        inputs = self.transform(image.cpu().to(torch.float32)).to(target_device, dtype=target_dtype)
 
         outputs = self.model(inputs)
 
@@ -170,12 +162,13 @@ class DinoImageEncoderMV(DinoImageEncoder):
             low, high = value_range
             image = (image - low) / (high - low)
 
-        image = image.to(self.model.device, dtype=self.model.dtype)
+        target_device = self.model.device
+        target_dtype = self.model.dtype
 
         bs, num_views, c, h, w = image.shape
         image = image.view(bs * num_views, c, h, w)
 
-        inputs = self.transform(image)
+        inputs = self.transform(image.cpu().to(torch.float32)).to(target_device, dtype=target_dtype)
         outputs = self.model(inputs)
 
         last_hidden_state = outputs.last_hidden_state
