@@ -184,6 +184,9 @@ class SparseStructureEncoder(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
 
     def forward(self, x: torch.Tensor, sample_posterior: bool = False, return_raw: bool = False) -> torch.Tensor:
+        in_dtype = next(self.input_layer.parameters()).dtype if hasattr(self.input_layer, "parameters") else self.dtype
+        if x.dtype != in_dtype:
+            x = x.to(in_dtype)
         h = self.input_layer(x)
         h = h.type(self.dtype)
 
@@ -191,7 +194,8 @@ class SparseStructureEncoder(nn.Module):
             h = block(h)
         h = self.middle_block(h)
 
-        h = h.type(x.dtype)
+        out_dtype = next(self.out_layer.parameters()).dtype if hasattr(self.out_layer, "parameters") else self.dtype
+        h = h.type(out_dtype)
         h = self.out_layer(h)
 
         mean, logvar = h.chunk(2, dim=1)
@@ -293,6 +297,9 @@ class SparseStructureDecoder(nn.Module):
         self.middle_block.apply(convert_module_to_f32)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        in_dtype = next(self.input_layer.parameters()).dtype if hasattr(self.input_layer, "parameters") else self.dtype
+        if x.dtype != in_dtype:
+            x = x.to(in_dtype)
         h = self.input_layer(x)
         
         h = h.type(self.dtype)
@@ -301,6 +308,7 @@ class SparseStructureDecoder(nn.Module):
         for block in self.blocks:
             h = block(h)
 
-        h = h.type(x.dtype)
+        out_dtype = next(self.out_layer.parameters()).dtype if hasattr(self.out_layer, "parameters") else self.dtype
+        h = h.type(out_dtype)
         h = self.out_layer(h)
         return h

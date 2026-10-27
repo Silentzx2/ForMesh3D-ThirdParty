@@ -232,7 +232,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
-        cond = {k: v.to(target_dev) if hasattr(v, 'to') else v for k, v in cond.items()}
+        cond = {k: v.to(device=target_dev, dtype=target_dtype) if hasattr(v, 'to') and torch.is_floating_point(v) else (v.to(target_dev) if hasattr(v, 'to') else v) for k, v in cond.items()}
         z_s = self.sparse_structure_sampler.sample(
             flow_model,
             noise,
@@ -247,9 +247,10 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         # Decode sparse structure latent
         decoder = self.models['sparse_structure_decoder']
         dec_dev = self.device if self.low_vram else (next(decoder.parameters()).device if hasattr(decoder, "parameters") else self.device)
+        dec_dtype = next(decoder.parameters()).dtype if hasattr(decoder, "parameters") else z_s.dtype
         if self.low_vram:
             decoder.to(self.device)
-        decoded = decoder(z_s.to(dec_dev))>0
+        decoded = decoder(z_s.to(device=dec_dev, dtype=dec_dtype))>0
         if self.low_vram:
             decoder.cpu()
         if resolution != decoded.shape[2]:
@@ -285,7 +286,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
-        cond = {k: v.to(target_dev) if hasattr(v, 'to') else v for k, v in cond.items()}
+        cond = {k: v.to(device=target_dev, dtype=target_dtype) if hasattr(v, 'to') and torch.is_floating_point(v) else (v.to(target_dev) if hasattr(v, 'to') else v) for k, v in cond.items()}
         slat = self.shape_slat_sampler.sample(
             flow_model,
             noise,
@@ -351,10 +352,11 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         
         # Upsample
         dec_dev = self.device if self.low_vram else (next(self.models['shape_slat_decoder'].parameters()).device if hasattr(self.models['shape_slat_decoder'], "parameters") else self.device)
+        dec_dtype = next(self.models['shape_slat_decoder'].parameters()).dtype if hasattr(self.models['shape_slat_decoder'], "parameters") else slat.dtype
         if self.low_vram:
             self.models['shape_slat_decoder'].to(self.device)
             self.models['shape_slat_decoder'].low_vram = True
-        hr_coords = self.models['shape_slat_decoder'].upsample(slat.to(dec_dev), upsample_times=4)
+        hr_coords = self.models['shape_slat_decoder'].upsample(slat.to(dec_dev).type(dec_dtype), upsample_times=4)
         if self.low_vram:
             self.models['shape_slat_decoder'].cpu()
             self.models['shape_slat_decoder'].low_vram = False
@@ -416,11 +418,12 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             List[SparseTensor]: The decoded substructures.
         """
         target_dev = self.device if self.low_vram else (next(self.models['shape_slat_decoder'].parameters()).device if hasattr(self.models['shape_slat_decoder'], "parameters") else self.device)
+        dec_dtype = next(self.models['shape_slat_decoder'].parameters()).dtype if hasattr(self.models['shape_slat_decoder'], "parameters") else slat.dtype
         self.models['shape_slat_decoder'].set_resolution(resolution)
         if self.low_vram:
             self.models['shape_slat_decoder'].to(self.device)
             self.models['shape_slat_decoder'].low_vram = True
-        ret = self.models['shape_slat_decoder'](slat.to(target_dev), return_subs=True)
+        ret = self.models['shape_slat_decoder'](slat.to(target_dev).type(dec_dtype), return_subs=True)
         if self.low_vram:
             self.models['shape_slat_decoder'].cpu()
             self.models['shape_slat_decoder'].low_vram = False
@@ -453,7 +456,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         in_channels = flow_model.in_channels if isinstance(flow_model, nn.Module) else flow_model[0].in_channels
         noise = shape_slat.replace(feats=torch.randn(shape_slat.coords.shape[0], in_channels - shape_slat.feats.shape[1], device=target_dev, dtype=target_dtype))
         sampler_params = {**self.tex_slat_sampler_params, **sampler_params}
-        cond = {k: v.to(target_dev) if hasattr(v, 'to') else v for k, v in cond.items()}
+        cond = {k: v.to(device=target_dev, dtype=target_dtype) if hasattr(v, 'to') and torch.is_floating_point(v) else (v.to(target_dev) if hasattr(v, 'to') else v) for k, v in cond.items()}
         if self.low_vram:
             flow_model.to(self.device)
         slat = self.tex_slat_sampler.sample(
@@ -489,10 +492,11 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             SparseTensor: The decoded texture voxels
         """
         dec_dev = self.device if self.low_vram else (next(self.models['tex_slat_decoder'].parameters()).device if hasattr(self.models['tex_slat_decoder'], "parameters") else self.device)
+        dec_dtype = next(self.models['tex_slat_decoder'].parameters()).dtype if hasattr(self.models['tex_slat_decoder'], "parameters") else slat.dtype
         if self.low_vram:
             self.models['tex_slat_decoder'].to(self.device)
         subs = [s.to(dec_dev) for s in subs] if subs else subs
-        ret = self.models['tex_slat_decoder'](slat.to(dec_dev), guide_subs=subs) * 0.5 + 0.5
+        ret = self.models['tex_slat_decoder'](slat.to(dec_dev).type(dec_dtype), guide_subs=subs) * 0.5 + 0.5
         if self.low_vram:
             self.models['tex_slat_decoder'].cpu()
         return ret
