@@ -250,13 +250,38 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         dec_dtype = next(decoder.parameters()).dtype if hasattr(decoder, "parameters") else z_s.dtype
         if self.low_vram:
             decoder.to(self.device)
-        decoded = decoder(z_s.to(device=dec_dev, dtype=dec_dtype))>0
+        raw_logits = decoder(z_s.to(device=dec_dev, dtype=dec_dtype))
         if self.low_vram:
             decoder.cpu()
+        if torch.isnan(raw_logits).any():
+            raw_logits = torch.nan_to_num(raw_logits, nan=-1.0)
+        decoded = raw_logits > 0
         if resolution != decoded.shape[2]:
             ratio = decoded.shape[2] // resolution
             decoded = torch.nn.functional.max_pool3d(decoded.float(), ratio, ratio, 0) > 0.5
         coords = torch.argwhere(decoded)[:, [0, 2, 3, 4]].int()
+
+        if coords.shape[0] == 0:
+            flat_logits = raw_logits.flatten()
+            k = min(max(512, int(flat_logits.numel() * 0.005)), flat_logits.numel())
+            threshold = torch.topk(flat_logits, k=k).values[-1].item()
+            decoded = raw_logits >= threshold
+            if resolution != decoded.shape[2]:
+                ratio = decoded.shape[2] // resolution
+                decoded = torch.nn.functional.max_pool3d(decoded.float(), ratio, ratio, 0) > 0.5
+            coords = torch.argwhere(decoded)[:, [0, 2, 3, 4]].int()
+            if coords.shape[0] == 0:
+                c_min = max(0, resolution // 4)
+                c_max = min(resolution, 3 * resolution // 4)
+                grid = torch.meshgrid(
+                    torch.arange(c_min, c_max),
+                    torch.arange(c_min, c_max),
+                    torch.arange(c_min, c_max),
+                    indexing="ij"
+                )
+                center_coords = torch.stack([g.flatten() for g in grid], dim=1)
+                batch_col = torch.zeros((center_coords.shape[0], 1), dtype=torch.int)
+                coords = torch.cat([batch_col, center_coords.int()], dim=1)
 
         return coords
 

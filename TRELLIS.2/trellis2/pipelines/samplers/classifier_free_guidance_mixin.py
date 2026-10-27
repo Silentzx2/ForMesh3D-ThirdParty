@@ -22,8 +22,10 @@ class ClassifierFreeGuidanceSamplerMixin:
                 x_0_cfg = self._pred_to_xstart(x_t, t, pred)
                 std_pos = x_0_pos.std(dim=list(range(1, x_0_pos.ndim)), keepdim=True)
                 std_cfg = x_0_cfg.std(dim=list(range(1, x_0_cfg.ndim)), keepdim=True)
-                x_0_rescaled = x_0_cfg * (std_pos / std_cfg)
+                x_0_rescaled = x_0_cfg * (std_pos / (std_cfg + 1e-8))
                 x_0 = guidance_rescale * x_0_rescaled + (1 - guidance_rescale) * x_0_cfg
                 pred = self._xstart_to_pred(x_t, t, x_0)
+                if torch.isnan(pred).any():
+                    pred = torch.nan_to_num(pred, nan=0.0)
                 
             return pred

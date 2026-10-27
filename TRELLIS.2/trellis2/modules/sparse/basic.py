@@ -460,17 +460,24 @@ class SparseTensor(VarLenTensor):
         
     def __cal_shape(self, feats, coords):
         shape = []
-        shape.append(coords[:, 0].max().item() + 1)
+        if coords.shape[0] == 0:
+            shape.append(0)
+        else:
+            shape.append(coords[:, 0].max().item() + 1)
         shape.extend([*feats.shape[1:]])
         return torch.Size(shape)
     
     def __cal_layout(self, coords, batch_size):
+        if coords.shape[0] == 0:
+            return [slice(0, 0) for _ in range(batch_size)]
         seq_len = torch.bincount(coords[:, 0], minlength=batch_size)
         offset = torch.cumsum(seq_len, dim=0) 
         layout = [slice((offset[i] - seq_len[i]).item(), offset[i].item()) for i in range(batch_size)]
         return layout
     
     def __cal_spatial_shape(self, coords):
+        if coords.shape[0] == 0:
+            return torch.Size([0, 0, 0])
         return torch.Size((coords[:, 1:].max(0)[0] + 1).tolist())
     
     @property
