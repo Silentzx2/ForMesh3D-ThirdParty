@@ -251,6 +251,16 @@ class Hunyuan3DDiTPipeline:
         self.kwargs = kwargs
         self.to(device, dtype)
 
+    @property
+    def components(self):
+        return {
+            "vae": getattr(self, "vae", None),
+            "model": getattr(self, "model", None),
+            "scheduler": getattr(self, "scheduler", None),
+            "conditioner": getattr(self, "conditioner", None),
+            "image_processor": getattr(self, "image_processor", None),
+        }
+
     def compile(self):
         self.vae = torch.compile(self.vae)
         self.model = torch.compile(self.model)
@@ -655,11 +665,14 @@ class Hunyuan3DDiTPipeline:
                     step_idx = i // getattr(self.scheduler, "order", 1)
                     callback(step_idx, t, outputs)
 
-        return self._export(
-            latents,
-            output_type,
-            box_v, mc_level, num_chunks, octree_resolution, mc_algo,
-        )
+        try:
+            return self._export(
+                latents,
+                output_type,
+                box_v, mc_level, num_chunks, octree_resolution, mc_algo,
+            )
+        finally:
+            self.maybe_free_model_hooks()
 
     def _export(
         self,
@@ -781,9 +794,12 @@ class Hunyuan3DDiTFlowMatchingPipeline(Hunyuan3DDiTPipeline):
                     step_idx = i // getattr(self.scheduler, "order", 1)
                     callback(step_idx, t, outputs)
 
-        return self._export(
-            latents,
-            output_type,
-            box_v, mc_level, num_chunks, octree_resolution, mc_algo,
-            enable_pbar=enable_pbar,
-        )
+        try:
+            return self._export(
+                latents,
+                output_type,
+                box_v, mc_level, num_chunks, octree_resolution, mc_algo,
+                enable_pbar=enable_pbar,
+            )
+        finally:
+            self.maybe_free_model_hooks()

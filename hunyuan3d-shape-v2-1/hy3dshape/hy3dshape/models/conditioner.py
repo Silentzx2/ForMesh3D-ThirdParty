@@ -22,6 +22,7 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
@@ -33,6 +34,8 @@ from transformers import (
     Dinov2Config,
 )
 from transformers import AutoImageProcessor, AutoModel
+
+logger = logging.getLogger(__name__)
 
 
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
@@ -95,23 +98,57 @@ class ImageEncoder(nn.Module):
             low, high = value_range
             image = (image - low) / (high - low)
 
-        target_device = self.model.device
-        target_dtype = self.model.dtype
+        target_device = getattr(self, "target_device", None)
+        if target_device is None:
+            dev = next(self.model.parameters()).device
+            target_device = dev if dev.type != "cpu" else (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+            self.target_device = target_device
+        target_dtype = getattr(self, "target_dtype", None)
+        if target_dtype is None:
+            dt = next(self.model.parameters()).dtype
+            target_dtype = dt if dt != torch.float32 else torch.float16
+            self.target_dtype = target_dtype
 
         # Always run image torchvision transforms on CPU to prevent CUDA kernel arch mismatches on pre-Ampere GPUs (T4 SM 7.5, P100 SM 6.0)
-        inputs = self.transform(image.cpu().to(torch.float32)).to(target_device, dtype=target_dtype)
+        inputs_cpu = self.transform(image.cpu().to(torch.float32))
 
-        outputs = self.model(inputs)
+        run_on_cpu = False
+        if target_device.type == "cuda":
+            try:
+                if torch.cuda.get_device_capability(target_device)[0] < 8:
+                    run_on_cpu = True
+            except Exception:
+                pass
 
-        last_hidden_state = outputs.last_hidden_state
+        if run_on_cpu:
+            orig_dev = next(self.model.parameters()).device
+            if orig_dev.type != "cpu":
+                self.model = self.model.to("cpu", dtype=torch.float32)
+            outputs = self.model(inputs_cpu)
+            last_hidden_state = outputs.last_hidden_state.to(device=target_device, dtype=target_dtype)
+        else:
+            try:
+                inputs = inputs_cpu.to(target_device, dtype=target_dtype)
+                outputs = self.model(inputs)
+                last_hidden_state = outputs.last_hidden_state
+            except RuntimeError as err:
+                err_str = str(err)
+                if "no kernel image is available" in err_str or "CUDA error" in err_str:
+                    logger.warning("CUDA vision backbone execution failed (%s). Retrying on CPU.", err)
+                    self.model = self.model.to("cpu", dtype=torch.float32)
+                    outputs = self.model(inputs_cpu)
+                    last_hidden_state = outputs.last_hidden_state.to(device=target_device, dtype=target_dtype)
+                else:
+                    raise
+
         if not self.use_cls_token:
             last_hidden_state = last_hidden_state[:, 1:, :]
 
         return last_hidden_state
 
     def unconditional_embedding(self, batch_size, **kwargs):
-        device = next(self.model.parameters()).device
-        dtype = next(self.model.parameters()).dtype
+        device = getattr(self, "target_device", None) or next(self.model.parameters()).device
+        dtype = getattr(self, "target_dtype", None) or next(self.model.parameters()).dtype
         zero = torch.zeros(
             batch_size,
             self.num_patches,
@@ -162,16 +199,51 @@ class DinoImageEncoderMV(DinoImageEncoder):
             low, high = value_range
             image = (image - low) / (high - low)
 
-        target_device = self.model.device
-        target_dtype = self.model.dtype
+        target_device = getattr(self, "target_device", None)
+        if target_device is None:
+            dev = next(self.model.parameters()).device
+            target_device = dev if dev.type != "cpu" else (torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu"))
+            self.target_device = target_device
+        target_dtype = getattr(self, "target_dtype", None)
+        if target_dtype is None:
+            dt = next(self.model.parameters()).dtype
+            target_dtype = dt if dt != torch.float32 else torch.float16
+            self.target_dtype = target_dtype
 
         bs, num_views, c, h, w = image.shape
         image = image.view(bs * num_views, c, h, w)
 
-        inputs = self.transform(image.cpu().to(torch.float32)).to(target_device, dtype=target_dtype)
-        outputs = self.model(inputs)
+        inputs_cpu = self.transform(image.cpu().to(torch.float32))
 
-        last_hidden_state = outputs.last_hidden_state
+        run_on_cpu = False
+        if target_device.type == "cuda":
+            try:
+                if torch.cuda.get_device_capability(target_device)[0] < 8:
+                    run_on_cpu = True
+            except Exception:
+                pass
+
+        if run_on_cpu:
+            orig_dev = next(self.model.parameters()).device
+            if orig_dev.type != "cpu":
+                self.model = self.model.to("cpu", dtype=torch.float32)
+            outputs = self.model(inputs_cpu)
+            last_hidden_state = outputs.last_hidden_state.to(device=target_device, dtype=target_dtype)
+        else:
+            try:
+                inputs = inputs_cpu.to(target_device, dtype=target_dtype)
+                outputs = self.model(inputs)
+                last_hidden_state = outputs.last_hidden_state
+            except RuntimeError as err:
+                err_str = str(err)
+                if "no kernel image is available" in err_str or "CUDA error" in err_str:
+                    logger.warning("CUDA vision backbone execution failed (%s). Retrying on CPU.", err)
+                    self.model = self.model.to("cpu", dtype=torch.float32)
+                    outputs = self.model(inputs_cpu)
+                    last_hidden_state = outputs.last_hidden_state.to(device=target_device, dtype=target_dtype)
+                else:
+                    raise
+
         last_hidden_state = last_hidden_state.view(
             bs, num_views, last_hidden_state.shape[-2],
             last_hidden_state.shape[-1]
@@ -195,11 +267,12 @@ class DinoImageEncoderMV(DinoImageEncoder):
         return last_hidden_state
 
     def unconditional_embedding(self, batch_size, view_idxs=None, **kwargs):
-        device = next(self.model.parameters()).device
-        dtype = next(self.model.parameters()).dtype
+        device = getattr(self, "target_device", None) or next(self.model.parameters()).device
+        dtype = getattr(self, "target_dtype", None) or next(self.model.parameters()).dtype
+        num_views = len(view_idxs[0]) if view_idxs is not None and len(view_idxs) > 0 else self.view_num
         zero = torch.zeros(
             batch_size,
-            self.num_patches * len(view_idxs[0]),
+            self.num_patches * num_views,
             self.model.config.hidden_size,
             device=device,
             dtype=dtype,
