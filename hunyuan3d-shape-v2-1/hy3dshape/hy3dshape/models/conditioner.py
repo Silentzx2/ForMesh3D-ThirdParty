@@ -95,8 +95,20 @@ class ImageEncoder(nn.Module):
             low, high = value_range
             image = (image - low) / (high - low)
 
-        image = image.to(self.model.device, dtype=self.model.dtype)
-        inputs = self.transform(image)
+        target_device = self.model.device
+        target_dtype = self.model.dtype
+
+        try:
+            if not getattr(image, "is_cuda", False):
+                inputs = self.transform(image.to(torch.float32)).to(target_device, dtype=target_dtype)
+            else:
+                inputs = self.transform(image.to(target_device, dtype=target_dtype))
+        except Exception as e:
+            if "no kernel image is available" in str(e) or "CUDA error" in str(e) or "CUDA" in type(e).__name__:
+                inputs = self.transform(image.cpu().to(torch.float32)).to(target_device, dtype=target_dtype)
+            else:
+                raise
+
         outputs = self.model(inputs)
 
         last_hidden_state = outputs.last_hidden_state
