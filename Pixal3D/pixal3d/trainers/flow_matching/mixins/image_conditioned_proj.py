@@ -603,7 +603,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             image = [i.resize((self.image_size, self.image_size), Image.LANCZOS) for i in image]
             image = [np.array(i.convert('RGB')).astype(np.float32) / 255 for i in image]
             image = [torch.from_numpy(i).permute(2, 0, 1).float() for i in image]
-            image = torch.stack(image).cuda()
+            image = torch.stack(image).to(device=next(self.model.parameters()).device)
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         
@@ -1015,7 +1015,7 @@ class DinoV3VaeProjFeatureExtractor(nn.Module):
             image = [i.resize((self.image_size, self.image_size), Image.LANCZOS) for i in image]
             image = [np.array(i.convert('RGB')).astype(np.float32) / 255 for i in image]
             image = [torch.from_numpy(i).permute(2, 0, 1).float() for i in image]
-            image = torch.stack(image).cuda()
+            image = torch.stack(image).to(device=next(self.dino_model.parameters()).device)
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         

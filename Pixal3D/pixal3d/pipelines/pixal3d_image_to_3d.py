@@ -209,10 +209,10 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': ...}
         """
-        device = self.device
         image_cond_model = self.image_cond_model_ss
         if self.low_vram:
-            image_cond_model.to(device)
+            image_cond_model.to(self.device)
+        device = next(image_cond_model.parameters()).device
         cam_angle = torch.tensor([camera_angle_x], device=device)
         dist_tensor = torch.tensor([distance], device=device)
         scale_tensor = torch.tensor([mesh_scale], device=device)
@@ -252,9 +252,9 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         Returns:
             dict with 'cond' and 'neg_cond', each containing {'global': ..., 'proj': SparseTensor}
         """
-        device = self.device
         if self.low_vram:
-            image_cond_model.to(device)
+            image_cond_model.to(self.device)
+        device = next(image_cond_model.parameters()).device
 
         orig_grid_res = image_cond_model.grid_resolution
         if grid_resolution_override is not None and grid_resolution_override != orig_grid_res:
@@ -273,12 +273,15 @@ class Pixal3DImageTo3DPipeline(Pipeline):
         )
         grid_res = image_cond_model.grid_resolution
         z_proj_grid = z_proj.reshape(B, grid_res, grid_res, grid_res, -1)
-        batch_indices = coords[:, 0].long()
-        x_coords = coords[:, 1].long()
-        y_coords = coords[:, 2].long()
-        z_coords = coords[:, 3].long()
+        # Sparse coordinates can originate on another GPU after component dispatch.
+        # Index the projection grid using coordinates on the conditioning encoder device.
+        coords_on_device = coords.to(device)
+        batch_indices = coords_on_device[:, 0].long()
+        x_coords = coords_on_device[:, 1].long()
+        y_coords = coords_on_device[:, 2].long()
+        z_coords = coords_on_device[:, 3].long()
         z_proj_sparse = z_proj_grid[batch_indices, x_coords, y_coords, z_coords]
-        z_proj_st = SparseTensor(feats=z_proj_sparse, coords=coords)
+        z_proj_st = SparseTensor(feats=z_proj_sparse, coords=coords_on_device)
 
         if grid_resolution_override is not None and grid_resolution_override != orig_grid_res:
             image_cond_model.grid_resolution = orig_grid_res
@@ -291,7 +294,7 @@ class Pixal3DImageTo3DPipeline(Pipeline):
             image_cond_model.cpu()
         return {
             'cond': {'global': z_global, 'proj': z_proj_st},
-            'neg_cond': {'global': torch.zeros_like(z_global), 'proj': SparseTensor(feats=torch.zeros_like(z_proj_sparse), coords=coords)},
+            'neg_cond': {'global': torch.zeros_like(z_global), 'proj': SparseTensor(feats=torch.zeros_like(z_proj_sparse), coords=coords_on_device)},
         }
 
     # =========================================================================
