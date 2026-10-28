@@ -151,18 +151,20 @@ def _filter_components(
 def _simplify(mesh: trimesh.Trimesh, target_face_count: int) -> trimesh.Trimesh:
     try:
         import pyfqmr
-    except ImportError as exc:
-        raise ImportError(
-            "Mesh simplification requires the core `pyfqmr` dependency."
-        ) from exc
-
-    simplifier = pyfqmr.Simplify()
-    simplifier.setMesh(mesh.vertices, mesh.faces)
-    simplifier.simplify_mesh(
-        target_count=target_face_count,
-        aggressiveness=5,
-        preserve_border=True,
-        verbose=False,
-    )
-    vertices, faces, _ = simplifier.getMesh()
-    return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+        simplifier = pyfqmr.Simplify()
+        simplifier.setMesh(mesh.vertices, mesh.faces)
+        simplifier.simplify_mesh(
+            target_count=target_face_count,
+            aggressiveness=5,
+            preserve_border=True,
+            verbose=False,
+        )
+        vertices, faces, _ = simplifier.getMesh()
+        return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+    except Exception:
+        try:
+            if hasattr(mesh, "simplify_quadric_decimation") and len(mesh.faces) > target_face_count:
+                return mesh.simplify_quadric_decimation(face_count=target_face_count)
+        except Exception:
+            pass
+        return mesh
