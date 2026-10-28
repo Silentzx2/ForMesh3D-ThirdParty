@@ -159,6 +159,9 @@ class DMCSurfaceExtractor(SurfaceExtractor):
             except ImportError:
                 raise ImportError("Please install diso via `pip install diso`, or set mc_algo to 'mc'")
         sdf = -grid_logit / octree_resolution
+        # Ensure sdf is on the same CUDA device as the DMC kernel (prevents host-ptr CUDA errors)
+        if device.type == "cuda" and sdf.device != device:
+            sdf = sdf.to(device)
         sdf = sdf.to(torch.float32).contiguous()
         verts, faces = self.dmc(sdf, deform=None, return_quads=False, normalize=True)
         verts = center_vertices(verts)
