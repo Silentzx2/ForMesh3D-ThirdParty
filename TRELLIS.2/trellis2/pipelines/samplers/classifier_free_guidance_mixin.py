@@ -1,4 +1,5 @@
 from typing import *
+import torch
 
 
 class ClassifierFreeGuidanceSamplerMixin:
