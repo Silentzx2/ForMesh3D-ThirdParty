@@ -474,6 +474,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
         grid_resolution: int = 16,
         use_naf_upsample: bool = False,
         naf_target_size: Optional[List[int]] = None,
+        cache_dir: Optional[str] = None,
     ):
         super().__init__()
         self.model_name = model_name
@@ -488,7 +489,9 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             self.naf_target_size = tuple(naf_target_size)
         
         # Load DINOv3 model (frozen, no trainable params in this module)
-        self.model = DINOv3ViTModel.from_pretrained(model_name)
+        # Explicit cache_dir keeps Hugging Face downloads out of a possibly read-only home directory.
+        self.cache_dir = cache_dir
+        self.model = DINOv3ViTModel.from_pretrained(model_name, cache_dir=cache_dir)
         self.model.eval()
         self.model.requires_grad_(False)
         
