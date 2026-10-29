@@ -13,6 +13,7 @@ import warnings
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from sparc3d.ops import sparse_backend
 from sparc3d.structures.point import Point
@@ -134,7 +135,12 @@ class PointGroupNorm(PointModule):
             del mean, var, inv_std, mean_exp, inv_std_exp
 
         feat_norm_all = feat_norm_all.view(N, C)
-        feat_norm_all.mul_(self.weights).add_(self.bias)
+        weights = self.weights.to(feat_norm_all.dtype) if self.weights is not None else None
+        bias = self.bias.to(feat_norm_all.dtype) if self.bias is not None else None
+        if weights is not None:
+            feat_norm_all.mul_(weights)
+        if bias is not None:
+            feat_norm_all.add_(bias)
 
         point.update_feat(feat_norm_all)
         return point
@@ -146,7 +152,9 @@ class LayerNormFP32(nn.LayerNorm):
     @force_fp32(mode="convert_back")
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Normalize the last dimension of ``x`` in float32."""
-        return super().forward(x)
+        weight = self.weight.to(x.dtype) if self.weight is not None else None
+        bias = self.bias.to(x.dtype) if self.bias is not None else None
+        return F.layer_norm(x, self.normalized_shape, weight, bias, self.eps)
 
 
 class MLP(nn.Module):
