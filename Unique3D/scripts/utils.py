@@ -365,7 +365,17 @@ def simple_preprocess(input_image, rembg_session=session, background_color=255):
         y_max = int(y_nonzero[0].max())
         arr = arr[x_min: x_max, y_min: y_max]
         input_image = Image.fromarray(arr)
-    input_image = expand2square(input_image, (background_color, background_color, background_color, 0))
+    # Add a 10% breathing margin around the subject before expanding to square.
+    # This prevents the subject's top/bottom/sides from touching the canvas border,
+    # which otherwise creates severe boundary distortion walls in orthographic 3D reconstruction.
+    w, h = input_image.size
+    max_side = max(w, h)
+    margin_px = max(int(max_side * 0.10), 16)
+    padded_w = w + margin_px * 2
+    padded_h = h + margin_px * 2
+    padded_img = Image.new("RGBA", (padded_w, padded_h), (background_color, background_color, background_color, 0))
+    padded_img.paste(input_image, (margin_px, margin_px))
+    input_image = expand2square(padded_img, (background_color, background_color, background_color, 0))
     return input_image
 
 def init_target(img_pils, new_bkgd=(0., 0., 0.), device="cuda"):
