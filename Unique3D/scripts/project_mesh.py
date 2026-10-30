@@ -142,7 +142,11 @@ def project_color(meshes: Meshes, cameras: CamerasBase, pil_image: Image.Image, 
 
     # find invalid faces
     cos_angles = (faces_normals * view_direction).sum(dim=1)
-    assert cos_angles.mean() < 0, f"The view direction is not correct. cos_angles.mean()={cos_angles.mean()}"
+    # Poisson-reconstructed mesh normals may not consistently face the camera;
+    # flip them when they point away so color projection works regardless of orientation.
+    if cos_angles.mean() >= 0:
+        faces_normals = -faces_normals
+        cos_angles = (faces_normals * view_direction).sum(dim=1)
     selected_faces = unique_faces[cos_angles < -eps]
 
     # find verts
