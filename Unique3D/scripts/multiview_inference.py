@@ -31,7 +31,7 @@ def fast_geo(front_normal: Image.Image, back_normal: Image.Image, side_normal: I
     mesh_front = build_mesh(front_normal, front_normal, clamp_min=clamp, scale=side_w_over_h, init_type=init_type)
     mesh_back = build_mesh(back_normal, back_normal, is_back=True, clamp_min=clamp, scale=side_w_over_h, init_type=init_type)
     meshes = join_meshes_as_scene([mesh_front, mesh_back])
-    meshes = fix_border_with_pymeshlab_fast(meshes, poissson_depth=7, simplification=0)
+    meshes = fix_border_with_pymeshlab_fast(meshes, poissson_depth=8, simplification=0)
     return meshes
 
 def refine_rgb(rgb_pils, front_pil):

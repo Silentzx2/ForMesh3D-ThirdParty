@@ -142,10 +142,13 @@ def project_color(meshes: Meshes, cameras: CamerasBase, pil_image: Image.Image, 
 
     # find invalid faces
     cos_angles = (faces_normals * view_direction).sum(dim=1)
-    # Poisson-reconstructed mesh normals may not consistently face the camera;
-    # flip them when they point away so color projection works regardless of orientation.
-    if cos_angles.mean() >= 0:
-        faces_normals = -faces_normals
+    # Flip individual faces whose normals point away from the camera so every
+    # face faces the viewer. A global flip (based on mean) would make half the
+    # faces point the wrong way when only some are inverted, creating holes and
+    # fragmented geometry (wisps) after the cos_angles < -eps selection.
+    flip_mask = cos_angles >= 0
+    if flip_mask.any():
+        faces_normals[flip_mask] = -faces_normals[flip_mask]
         cos_angles = (faces_normals * view_direction).sum(dim=1)
     selected_faces = unique_faces[cos_angles < -eps]
 
