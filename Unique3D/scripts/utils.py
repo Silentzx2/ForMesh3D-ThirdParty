@@ -293,7 +293,16 @@ def save_glb_and_video(save_mesh_prefix: str, meshes: Meshes, with_timestamp=Tru
 def simple_clean_mesh(pyml_mesh: ml.Mesh, apply_smooth=True, stepsmoothnum=1, apply_sub_divide=False, sub_divide_threshold=0.25):
     ms = ml.MeshSet()
     ms.add_mesh(pyml_mesh, "cube_mesh")
-    
+
+    # Reconstruct surface from optimized vertices to fix degraded connectivity
+    # from 280 optimization steps (reconstruct_stage1 + run_mesh_refine) that
+    # run without Poisson remeshing. Without this, edge collapse/split/flip
+    # alone degrades mesh into thin spikes, collapsed surfaces, and holes.
+    try:
+        ms.apply_filter('generate_surface_reconstruction_screened_poisson', threads=6, depth=8, preclean=True)
+    except Exception:
+        pass
+
     # 1. Non-manifold repair and degenerate geometry cleanup
     try:
         ms.apply_filter("meshing_remove_duplicate_faces")
