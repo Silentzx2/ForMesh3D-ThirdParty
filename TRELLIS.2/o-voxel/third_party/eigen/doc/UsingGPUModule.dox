@@ -1,0 +1,186 @@
+namespace Eigen {
+
+/** \page TopicGPUModule Offloading linear algebra to a GPU with the GPU module
+
+The contrib module <a href="contrib/group__GPU__Module.html"><tt>contrib/Eigen/GPU</tt></a> runs dense and sparse linear
+algebra on NVIDIA GPUs from ordinary host code. It dispatches to the CUDA math libraries: cuBLAS, cuSOLVER, cuSPARSE,
+cuFFT, NPP, and optionally cuDSS. You write no kernels, and your source files stay regular \c .cpp files.
+
+This is a different feature from \ref TopicCUDA "using Eigen in CUDA kernels", where %Eigen's fixed-size objects run
+inside your own kernels, one small problem per thread. Use this module to run large operations on the GPU, such as a
+matrix product or a factorization.
+
+\warning Like the other contrib modules, this module has looser API-stability guarantees than the main library; see
+\ref Experimental. It supports NVIDIA CUDA only, not HIP or SYCL.
+
+\section TopicGPUModule_Setup Setup
+
+The module needs the CUDA Toolkit, version 11.8 or later. Sparse direct solvers also need cuDSS, which is installed
+separately and requires CUDA 12.0 or later. Define \c EIGEN_USE_GPU before including the header, because without it the
+header declares none of the module:
+
+\code
+#define EIGEN_USE_GPU
+#include <Eigen/Dense>
+#include <contrib/Eigen/GPU>
+\endcode
+
+The module is header-only, but your program must link NVIDIA libraries. Always link
+<tt>-lcublas -lcublasLt -lcudart</tt>, and add the libraries of the features you use:
+
+<table class="manual">
+<tr><th>Feature</th><th>Additional link flags</th></tr>
+<tr><td>\c DeviceMatrix, products, triangular solves</td><td>none</td></tr>
+<tr class="alt"><td>Dense solvers</td><td><tt>-lcusolver</tt></td></tr>
+<tr><td>\c norm(), \c DeviceScalar arithmetic, \c /=, \c cwiseProduct</td><td><tt>-lnpps -lnppc</tt></td></tr>
+<tr class="alt"><td>\c gpu::SparseContext, \c gpu::DeviceSparseView</td><td><tt>-lcusparse</tt></td></tr>
+<tr><td>\c ConjugateGradient on a \c gpu::DeviceSparseView</td><td><tt>-lcusparse -lnpps -lnppc</tt></td></tr>
+<tr class="alt"><td>\c gpu::FFT</td><td><tt>-lcufft</tt></td></tr>
+<tr><td>Sparse direct solvers (define \c EIGEN_CUDSS before the include)</td><td><tt>-lcudss</tt></td></tr>
+</table>
+
+With CMake, the \c CUDAToolkit package provides these libraries as targets. This program uses the dense solvers:
+
+\code{.cmake}
+find_package(CUDAToolkit REQUIRED)
+target_link_libraries(app PRIVATE CUDA::cublas CUDA::cublasLt CUDA::cusolver CUDA::cudart)
+\endcode
+
+For other features, add \c CUDA::cusparse, \c CUDA::cufft, \c CUDA::npps and \c CUDA::nppc as the table requires. cuDSS
+is not part of that package: find it with <tt>find_package(cudss)</tt> and link its \c cudss target.
+
+\section TopicGPUModule_Dense Dense matrices
+
+GPU and CPU code coexist in one program, because there is no global switch: you choose the GPU by using the types in
+the \c Eigen::gpu namespace. A \c gpu::DeviceMatrix holds a dense, column-major matrix in device memory. Move data with
+\c fromHost() and \c toHost(). Between those calls, expressions look like their CPU counterparts:
+
+\code
+MatrixXd A = ..., B = ...;  // A is symmetric positive definite
+
+auto d_A = gpu::DeviceMatrix<double>::fromHost(A);
+auto d_B = gpu::DeviceMatrix<double>::fromHost(B);
+
+gpu::DeviceMatrix<double> d_C = d_A * d_B;             // cuBLAS
+gpu::DeviceMatrix<double> d_X = d_A.llt().solve(d_B);  // cuSOLVER
+
+MatrixXd X = d_X.toHost();
+\endcode
+
+The expression \c d_A.llt().solve(d_B) factorizes on every evaluation. To reuse a factorization, or to check for
+numerical failure, use a solver class instead. The classes are \c gpu::LLT, \c gpu::LU, \c gpu::QR, \c gpu::SVD and
+\c gpu::SelfAdjointEigenSolver:
+
+\code
+gpu::LLT<double> llt;
+llt.compute(d_A);
+if (llt.info() != Success) { ... }
+
+gpu::DeviceMatrix<double> d_X1 = llt.solve(d_B1);  // reuses the factor on the device
+gpu::DeviceMatrix<double> d_X2 = llt.solve(d_B2);
+\endcode
+
+The solvers also accept host matrices and handle the transfers themselves, which makes them the smallest change from
+CPU code:
+
+\code
+gpu::LLT<double> llt(A);    // instead of Eigen::LLT<MatrixXd> llt(A);
+MatrixXd X = llt.solve(B);
+\endcode
+
+\section TopicGPUModule_Sparse Sparse matrices
+
+Define \c EIGEN_CUDSS to enable \c gpu::SparseLLT, \c gpu::SparseLDLT and \c gpu::SparseLU. They take an ordinary
+\c SparseMatrix and host vectors:
+
+\code
+#define EIGEN_USE_GPU
+#define EIGEN_CUDSS
+#include <Eigen/Sparse>
+#include <contrib/Eigen/GPU>
+
+SparseMatrix<double> A = ...;
+VectorXd b = ...;
+
+gpu::SparseLLT<double> llt(A);  // instead of SimplicialLLT<SparseMatrix<double>> llt(A);
+if (llt.info() != Success) { ... }
+VectorXd x = llt.solve(b);
+\endcode
+
+As with the CPU solvers, a sequence of matrices with one sparsity pattern can share the symbolic analysis, by calling
+\c analyzePattern() once and \c factorize() for each matrix.
+
+For sparse matrix-vector products, \c gpu::SparseContext uses cuSPARSE. Its \c deviceView() also lets %Eigen's own
+\c ConjugateGradient run on the GPU, with the identity preconditioner and real scalars:
+
+\code
+#include <Eigen/IterativeLinearSolvers>
+
+gpu::SparseContext<double> spmv;
+auto mat = spmv.deviceView(A);
+auto d_b = gpu::DeviceMatrix<double>::fromHost(b);
+gpu::DeviceMatrix<double> d_x(A.rows(), 1);
+d_x.setZero();
+
+ConjugateGradient<gpu::DeviceSparseView<double>, Lower | Upper, IdentityPreconditioner> cg;
+cg.compute(mat);                     // stores a pointer: mat and spmv must outlive cg
+cg.solveWithGuessInPlace(d_b, d_x);  // d_x holds the initial guess
+\endcode
+
+A \c gpu::SparseContext caches one matrix at a time, so another \c deviceView() or a \c multiply() with a host matrix
+invalidates its earlier views. Use one context per matrix.
+
+\section TopicGPUModule_Execution Asynchronous execution and threads
+
+Operations are asynchronous by default. The host waits only where it must: in \c fromHost(), \c toHost(), \c info(),
+when a \c gpu::DeviceScalar, the result type of \c dot() and \c norm(), converts to a host scalar, and in the forms that
+return host data, such as \c solve() on a host matrix, and \c gpu::FFT and \c gpu::SparseContext::multiply() on host
+vectors. The dense solvers also wait when \c compute() takes a host matrix, and an internal workspace that has to grow
+waits for the work using it. Debug builds also wait to check the factorization, on the first
+\c solve() after \c compute() and on each \c llt().solve(). Transfers are usually the main cost, so keep intermediate
+results on the device and download only what the host needs.
+
+Each thread gets a default \c gpu::Context, which holds a CUDA stream and the library handles. One \c Context is not
+thread-safe. To run work on separate streams, or to share a stream with your own CUDA code, create contexts explicitly.
+\c DeviceMatrix synchronizes across streams automatically:
+
+\code
+gpu::Context ctx1, ctx2;
+d_C1.device(ctx1) = d_A1 * d_B1;  // runs on stream 1
+d_C2.device(ctx2) = d_A2 * d_B2;  // runs on stream 2, concurrently
+
+gpu::Context ctx3(my_existing_stream);  // borrows the stream without owning it
+\endcode
+
+\section TopicGPUModule_Errors Errors
+
+There are two kinds of failure:
+
+- A failed CUDA or library call stops the program, in release builds as well as debug builds. To handle such failures
+  yourself, for instance by throwing an exception, define the macro <tt>EIGEN_GPU_CHECK_FAILED(error, expression, file,
+  line)</tt> before including the module.
+- A numerical failure, such as a matrix that is not positive definite, is reported by \c info(). Release builds do not
+  check it for you, and the one-shot \c llt().solve() form has no \c info(), so use a solver class and call \c info()
+  where failure is possible. cuSOLVER 11.4.1 and 11.4.2, from CUDA 11.8 and 12.0, do not detect a non-positive-definite
+  input to \c gpu::LLT: \c info() reports success and the factor contains NaNs. CUDA 12.1 and later report it.
+
+\section TopicGPUModule_Limitations Limitations
+
+- \c DeviceMatrix is not an %Eigen expression type and does not derive from \c MatrixBase, so it cannot be passed to
+  code templated on \c MatrixBase. It also has no coefficient access.
+- Each expression dispatches to NVIDIA library calls, usually one: \c norm() is a dot product and an NPP square root,
+  and \c llt().solve() is a copy, a factorization and a solve. Unlike CPU expressions, GPU expressions do not fuse into
+  a single loop, and an unsupported expression is a compile error.
+- Scalars are \c float, \c double, \c std::complex<float> and \c std::complex<double>, unless a class states otherwise.
+- Numerical behavior and performance are those of the NVIDIA libraries. In particular, the default compute types let
+  cuBLAS choose faster algorithms that might not be bit-reproducible; define \c EIGEN_NO_CUDA_TENSOR_OPS to disable them.
+
+\section TopicGPUModule_Reference Further reference
+
+The <a href="https://gitlab.com/libeigen/eigen/-/blob/master/contrib/Eigen/src/GPU/README.md">module README</a> is the
+complete reference. It covers the BLAS operations, FFT, solver configuration, stream control, and the mapping from each
+expression to its library calls.
+
+*/
+
+}

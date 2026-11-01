@@ -1,0 +1,111 @@
+# SIMD and GPU Changes
+
+Use this guide for packet math, architecture backends, device annotations, CUDA/HIP/SYCL code, Tensor device
+execution, and the `contrib/Eigen/GPU` module. The repository-root `AGENTS.md` still applies.
+
+## Packet math
+
+Eigen's vectorization API is the `Eigen::internal` packet layer. `packet_traits` and `unpacket_traits` describe a
+packet type and its capabilities; `p*` operations such as `pload`, `pstore`, `padd`, and `pmul` provide the common
+interface used by evaluators.
+
+- Scalar fallbacks and the default traits live in `Eigen/src/Core/GenericPacketMath.h`. Shared vector
+  implementations live under `Eigen/src/Core/arch/Default/`; backend specializations live in the relevant sibling
+  directories under `Eigen/src/Core/arch/`.
+- Start a new operation with a correct generic fallback when one is possible. Add specializations only for relevant
+  backends that support the operation; do not require an implementation in every backend merely because one backend
+  gains an intrinsic.
+- Guard each intrinsic with the feature macro that enables it, even inside a broader backend directory. For example,
+  AVX2 or FMA intrinsics in `arch/AVX/` still require `EIGEN_VECTORIZE_AVX2` or `EIGEN_VECTORIZE_FMA`, plus a fallback
+  for narrower configurations. Consult `Eigen/src/Core/util/ConfigureVectorization.h` for the current feature macros.
+- Keep capability flags (`Has*`), packet and half-packet types, alignment, masked access, casts, and cost metadata
+  consistent with the implementation. A capability flag must not advertise an unavailable or semantically different
+  operation.
+- Preserve scalar-remainder behavior and unaligned paths. Packet-sized inputs alone do not cover an evaluator.
+- Standard mathematical functions should match the scalar contract for special values. Measure ordinary-input error
+  in ULPs against an appropriate scalar or higher-precision reference. Where the platform exposes the IEEE 754
+  behaviors, test NaN, infinities, signed zero, subnormals, and domain boundaries explicitly.
+
+A missing specialization is not always a compile error. Some generic fallbacks in `Eigen/src/Core/GenericPacketMath.h`
+are the identity or a single-lane version of the real operation; the generic `preverse`, for example, returns its
+argument unchanged. A backend without the specialization then silently computes wrong results instead of failing to
+build. Before calling a `p*` operation from code that every backend instantiates, confirm that each backend reaching
+the call implements the operation. SYCL's packet operations are the usual gap. Keep a scalar fallback for backends that
+lack it.
+
+The current source tree and `test/CMakeLists.txt` are authoritative for supported backends and configuration options;
+do not copy an architecture inventory into documentation.
+
+## Device-callable code
+
+For CUDA and HIP, `EIGEN_DEVICE_FUNC` supplies the host/device qualifiers required by functions reached from device
+code. Under SYCL device compilation it supplies the flattening and inlining attributes Eigen requires, but does not by
+itself decide whether a function is callable from the device. Preserve it on coefficient accessors, evaluators,
+functors, small helpers, constructors, and operators reached from device code.
+
+- Keep device code allocation-free unless the specific backend and API deliberately provide an allocator.
+- Avoid host-only standard-library calls, exceptions, RTTI assumptions, and function-local static state on device
+  paths.
+- Define configuration macros before the first Eigen public header.
+- Keep the index configuration consistent across translation units that exchange Eigen objects.
+- Include public module headers in tests and examples. Implementation headers under `Eigen/src/` and
+  `contrib/Eigen/src/` are not user include points.
+
+## Three GPU models
+
+### Core types inside kernels
+
+CUDA and HIP kernels can use fixed-size owning matrices, vectors, and arrays through public Eigen headers; see
+`doc/UsingNVCC.dox`. Dynamic owning `Matrix` and `Array` objects require allocation and are generally unsuitable
+inside kernels. Runtime dimensions still work: a `Map` over caller-managed device memory can use dynamic dimensions
+when every operation the expression reaches is device-callable.
+
+CUDA/HIP compilation disables host SIMD. Move substantial host-side Eigen work to a normal `.cpp` translation unit.
+Use `EIGEN_NO_CUDA` or `EIGEN_NO_HIP` only when the corresponding compiler processes Eigen exclusively for host use.
+If device code requires a different dense index type, define `EIGEN_DEFAULT_DENSE_INDEX_TYPE` consistently wherever
+objects cross the host/device boundary.
+
+### Tensor devices
+
+`contrib/Eigen/Tensor` evaluates expressions through an explicit device. `GpuDevice` handles CUDA/HIP and
+`SyclDevice` handles SYCL; Tensor GPU kernels remain part of the Tensor implementation. Device-resident storage is
+normally supplied through `TensorMap`, and the destination selects execution with `out.device(device) = expression`.
+
+Host-side runtime calls in the device go through `EIGEN_GPU_RUNTIME_CHECK` in `Eigen/src/Core/util/GpuRuntime.h`.
+Kernel launches use `LAUNCH_GPU_KERNEL` in `contrib/Eigen/src/Tensor/TensorDeviceGpu.h`, which forwards to
+`internal::gpu_launch` in `GpuRuntime.h`. If only a `gpu_assert` inspects a stored result, release builds never check
+it. Before changing memory, synchronization, or callback semantics, consult
+`contrib/Eigen/src/Tensor/README.md` and the nearby device implementation.
+
+### `contrib/Eigen/GPU`
+
+This module is a host-side wrapper around NVIDIA libraries, and code selects it explicitly by using the `Eigen::gpu`
+types. `gpu::DeviceMatrix` is not a `MatrixBase` expression. Each supported expression maps to a CUDA library
+operation, not to Core coefficient evaluation or packet fusion. Define `EIGEN_USE_GPU` before including
+`<contrib/Eigen/GPU>`, and consult `contrib/Eigen/src/GPU/README.md`. Its tests under `contrib/test/GPU/` are
+intentionally host-compiled `.cpp` files.
+
+GPU work in this module runs asynchronously, so refactors that would be harmless elsewhere can break it.
+
+- Freeing, reusing, or destroying memory, streams, events, and handles must respect stream order: synchronize or fence
+  with an event first. A cleanup that removes a wait is correct only if the wait was redundant in every ownership mode.
+  For example, a borrowed handle's deleter is a no-op and supplies none of the synchronization that an owned handle's
+  teardown does.
+- Do not signal a mode with a value the user can legitimately pass. A null stream, for example, is a valid stream whose
+  meaning depends on the build configuration, not a "none" sentinel.
+- Key a cache on content or a generation counter, not on host identity (pointer, extent, nnz). Reassignment reuses
+  allocations, so a cache keyed on host identity can be fooled.
+
+## Validation
+
+- Packet API or math changes: run the relevant parts of `packetmath`, the generic packet tests, and
+  `special_packetmath`; exercise every locally available affected backend.
+- Core device-callability changes: build and run the relevant `gpu_basic` or `gpu_example` target with the available
+  CUDA/HIP compiler.
+- Tensor device changes: run the operation's CPU Tensor test plus the matching CUDA/HIP/SYCL test where available.
+- `contrib/Eigen/GPU` changes: run the focused target under `contrib/test/GPU/` and any affected library
+  integration target enabled by the local toolkit.
+- Report backends or hardware that were unavailable. Do not claim cross-backend validation from a host-only build.
+
+Performance-sensitive packet or GPU changes require a representative benchmark under identical compiler flags,
+device state, and workload conditions. Correctness tests are not performance evidence.

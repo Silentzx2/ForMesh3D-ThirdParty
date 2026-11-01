@@ -1,0 +1,52 @@
+# <small>nlohmann::basic_json::</small>cbor_tag_handler_t
+
+```cpp
+enum class cbor_tag_handler_t
+{
+    error,
+    ignore,
+    store
+};
+```
+
+This enumeration is used in [`from_cbor`](from_cbor.md) and [`sax_parse`](sax_parse.md) to choose how to treat tags:
+
+error
+:   report a parse error in case of a tag (the `from_cbor` overloads throw a `parse_error` exception by default)
+
+ignore
+:   ignore tags (also in front of a text string map key)
+
+store
+:   store tagged byte strings (for bytes 0xd8..0xdb) as binary values with the tag as subtype; other tagged values are
+    read as if the tag were ignored. If several tags precede a byte string, only the tag directly in front of it is
+    stored, and only when it has the form 0xd8..0xdb (a tag 0..23 written as 0xc0..0xd7 is skipped). Tags in front of a
+    text string map key are skipped.
+
+## Examples
+
+??? example
+
+    The example below shows how the different values of the `cbor_tag_handler_t` influence the behavior of
+    [`from_cbor`](from_cbor.md) when reading a tagged byte string.
+
+    ```cpp
+    --8<-- "examples/cbor_tag_handler_t.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/cbor_tag_handler_t.output"
+    ```
+
+## See also
+
+- [Binary values](../../features/binary_values.md) - how binary values and subtypes are handled
+- [`from_cbor`](from_cbor.md) - deserializes a JSON value from CBOR
+- [`input_format_t`](input_format_t.md) - the enumeration of supported input formats
+- [CBOR](../../features/binary_formats/cbor.md) - the article on the CBOR format
+
+## Version history
+
+- Added in version 3.9.0. Added value `store` in 3.10.0.

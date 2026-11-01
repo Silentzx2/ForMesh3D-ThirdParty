@@ -1,0 +1,56 @@
+# <small>nlohmann::basic_json::</small>rend
+
+```cpp
+reverse_iterator rend() noexcept;
+const_reverse_iterator rend() const noexcept;
+```
+
+Returns an iterator to the reverse-end; that is, one before the first element. This element acts as a placeholder,
+attempting to access it results in undefined behavior.
+
+<div class="nj-fig-wrap" markdown>
+--8<-- "images/range-rbegin-rend.svg"
+</div>
+
+<p class="nj-caption" markdown>`rend()` points to the position before the first element and `rbegin()` to the last
+element. The upper row is the reversed sequence and the lower row the forward sequence; dashed arrows link each reverse
+iterator to the forward iterator it stores, and dashed cells are past-the-last positions.</p>
+
+## Return value
+
+reverse iterator to the element following the last element
+
+## Exception safety
+
+No-throw guarantee: this member function never throws exceptions.
+
+## Complexity
+
+Constant.
+
+## Examples
+
+??? example
+
+    The following code shows an example for `rend()`.
+    
+    ```cpp
+    --8<-- "examples/rend.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/rend.output"
+    ```
+
+## See also
+
+- [`rbegin`](rbegin.md) - returns a reverse iterator to the last element
+- [`crend`](crend.md) - returns a const reverse iterator to one before the first element
+- [`end`](end.md) - returns an iterator to one past the last element
+- [Iterators](../../features/iterators.md) - the article on iterators
+
+## Version history
+
+- Added in version 1.0.0.

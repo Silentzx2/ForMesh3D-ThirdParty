@@ -1,0 +1,187 @@
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2009-2010 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
+#include "common.h"
+
+EIGEN_BLAS_FUNC(axpy)
+(const EIGEN_BLAS_INT *n_in, const RealScalar *palpha, const RealScalar *px, const EIGEN_BLAS_INT *incx_in,
+ RealScalar *py, const EIGEN_BLAS_INT *incy_in) {
+  const Scalar *x = reinterpret_cast<const Scalar *>(px);
+  Scalar *y = reinterpret_cast<Scalar *>(py);
+  Scalar alpha = *reinterpret_cast<const Scalar *>(palpha);
+
+  const Eigen::Index n = *n_in;
+  const Eigen::Index incx = *incx_in;
+  const Eigen::Index incy = *incy_in;
+
+  if (n <= 0) return;
+
+  if (incx == 1 && incy == 1)
+    make_vector(y, n) += alpha * make_vector(x, n);
+  else if (incx >= 0 && incy >= 0)
+    make_vector(y, n, incy) += alpha * make_vector(x, n, incx);
+  else if (incx >= 0 && incy < 0)
+    make_vector(y, n, -incy) += alpha * make_vector(x, n, incx).reverse();
+  else if (incx < 0 && incy >= 0)
+    make_vector(y, n, incy) += alpha * make_vector(x, n, -incx).reverse();
+  else if (incx < 0 && incy < 0)
+    make_vector(y, n, -incy) += alpha * make_vector(x, n, -incx);
+}
+
+EIGEN_BLAS_FUNC(axpby)
+(const EIGEN_BLAS_INT *pn, const RealScalar *palpha, const RealScalar *px, const EIGEN_BLAS_INT *pincx,
+ const RealScalar *pbeta, RealScalar *py, const EIGEN_BLAS_INT *pincy) {
+  const Scalar *x = reinterpret_cast<const Scalar *>(px);
+  Scalar *y = reinterpret_cast<Scalar *>(py);
+  const Scalar alpha = *reinterpret_cast<const Scalar *>(palpha);
+  const Scalar beta = *reinterpret_cast<const Scalar *>(pbeta);
+  const Eigen::Index n = *pn;
+
+  if (n <= 0) return;
+
+  if (Eigen::numext::equal_strict(beta, Scalar(1))) {
+    EIGEN_BLAS_FUNC_NAME(axpy)(pn, palpha, px, pincx, py, pincy);
+    return;
+  }
+
+  const Eigen::Index incx = *pincx;
+  const Eigen::Index incy = *pincy;
+
+  if (incx == 1 && incy == 1)
+    make_vector(y, n) = alpha * make_vector(x, n) + beta * make_vector(y, n);
+  else if (incx > 0 && incy > 0)
+    make_vector(y, n, incy) = alpha * make_vector(x, n, incx) + beta * make_vector(y, n, incy);
+  else if (incx > 0 && incy < 0)
+    make_vector(y, n, -incy) = alpha * make_vector(x, n, incx).reverse() + beta * make_vector(y, n, -incy);
+  else if (incx < 0 && incy > 0)
+    make_vector(y, n, incy) = alpha * make_vector(x, n, -incx).reverse() + beta * make_vector(y, n, incy);
+  else if (incx < 0 && incy < 0)
+    make_vector(y, n, -incy) = alpha * make_vector(x, n, -incx) + beta * make_vector(y, n, -incy);
+}
+
+EIGEN_BLAS_FUNC(copy)
+(EIGEN_BLAS_INT *n_in, RealScalar *px, EIGEN_BLAS_INT *incx_in, RealScalar *py, EIGEN_BLAS_INT *incy_in) {
+  const Eigen::Index n = *n_in;
+  const Eigen::Index incx = *incx_in;
+  const Eigen::Index incy = *incy_in;
+
+  if (n <= 0) return;
+
+  Scalar *x = reinterpret_cast<Scalar *>(px);
+  Scalar *y = reinterpret_cast<Scalar *>(py);
+
+  // be careful, *incx==0 is allowed !!
+  if (incx == 1 && incy == 1)
+    make_vector(y, n) = make_vector(x, n);
+  else if (incx == 0) {
+    // Broadcast: copy x[0] to all elements of y.
+    if (incy < 0) y = y - (n - 1) * incy;
+    for (Eigen::Index i = 0; i < n; ++i) {
+      *y = *x;
+      y += incy;
+    }
+  } else if (incx > 0 && incy > 0)
+    make_vector(y, n, incy) = make_vector(x, n, incx);
+  else if (incx > 0 && incy < 0)
+    make_vector(y, n, -incy).reverse() = make_vector(x, n, incx);
+  else if (incx < 0 && incy > 0)
+    make_vector(y, n, incy) = make_vector(x, n, -incx).reverse();
+  else if (incx < 0 && incy < 0)
+    make_vector(y, n, -incy) = make_vector(x, n, -incx);
+}
+
+EIGEN_BLAS_FUNC(rotg)(RealScalar *pa, RealScalar *pb, RealScalar *pc, RealScalar *ps) {
+  using std::abs;
+  using std::sqrt;
+
+  Scalar &a = *reinterpret_cast<Scalar *>(pa);
+  Scalar &b = *reinterpret_cast<Scalar *>(pb);
+  RealScalar *c = pc;
+  Scalar *s = reinterpret_cast<Scalar *>(ps);
+
+#if !ISCOMPLEX
+  Scalar r, z;
+  Scalar aa = abs(a);
+  Scalar ab = abs(b);
+  if ((aa + ab) == Scalar(0)) {
+    *c = 1;
+    *s = 0;
+    r = 0;
+    z = 0;
+  } else {
+    r = Eigen::numext::hypot(a, b);
+    Scalar amax = aa > ab ? a : b;
+    r = amax > 0 ? r : -r;
+    *c = a / r;
+    *s = b / r;
+    z = 1;
+    if (aa > ab) z = *s;
+    if (ab >= aa && *c != RealScalar(0)) z = Scalar(1) / *c;
+  }
+  *pa = r;
+  *pb = z;
+#else
+  Scalar alpha;
+  RealScalar norm, scale;
+  if (abs(a) == RealScalar(0)) {
+    *c = RealScalar(0);
+    *s = Scalar(1);
+    a = b;
+  } else {
+    scale = abs(a) + abs(b);
+    norm = scale * sqrt((Eigen::numext::abs2(a / scale)) + (Eigen::numext::abs2(b / scale)));
+    alpha = a / abs(a);
+    *c = abs(a) / norm;
+    *s = alpha * Eigen::numext::conj(b) / norm;
+    a = alpha * norm;
+  }
+#endif
+
+  //   JacobiRotation<Scalar> r;
+  //   r.makeGivens(a,b);
+  //   *c = r.c();
+  //   *s = r.s();
+}
+
+EIGEN_BLAS_FUNC(scal)(EIGEN_BLAS_INT *n_in, RealScalar *palpha, RealScalar *px, EIGEN_BLAS_INT *incx_in) {
+  const Eigen::Index n = *n_in;
+  const Eigen::Index incx = *incx_in;
+  if (n <= 0 || incx <= 0) return;
+
+  Scalar *x = reinterpret_cast<Scalar *>(px);
+  Scalar alpha = *reinterpret_cast<Scalar *>(palpha);
+
+  if (incx == 1)
+    make_vector(x, n) *= alpha;
+  else
+    make_vector(x, n, std::abs(incx)) *= alpha;
+}
+
+EIGEN_BLAS_FUNC(swap)
+(EIGEN_BLAS_INT *n_in, RealScalar *px, EIGEN_BLAS_INT *incx_in, RealScalar *py, EIGEN_BLAS_INT *incy_in) {
+  const Eigen::Index n = *n_in;
+  const Eigen::Index incx = *incx_in;
+  const Eigen::Index incy = *incy_in;
+  if (n <= 0) return;
+
+  Scalar *x = reinterpret_cast<Scalar *>(px);
+  Scalar *y = reinterpret_cast<Scalar *>(py);
+
+  if (incx == 1 && incy == 1)
+    make_vector(y, n).swap(make_vector(x, n));
+  else if (incx > 0 && incy > 0)
+    make_vector(y, n, incy).swap(make_vector(x, n, incx));
+  else if (incx > 0 && incy < 0)
+    make_vector(y, n, -incy).reverse().swap(make_vector(x, n, incx));
+  else if (incx < 0 && incy > 0)
+    make_vector(y, n, incy).swap(make_vector(x, n, -incx).reverse());
+  else if (incx < 0 && incy < 0)
+    make_vector(y, n, -incy).reverse().swap(make_vector(x, n, -incx).reverse());
+}

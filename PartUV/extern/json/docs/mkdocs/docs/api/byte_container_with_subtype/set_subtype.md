@@ -1,0 +1,48 @@
+# <small>nlohmann::byte_container_with_subtype::</small>set_subtype
+
+```cpp
+void set_subtype(subtype_type subtype) noexcept;
+```
+
+Sets the binary subtype of the value, also flags a binary JSON value as having a subtype, which has implications for
+serialization.
+
+## Parameters
+
+`subtype` (in)
+:   subtype to set
+
+## Exception safety
+
+No-throw guarantee: this function never throws exceptions.
+
+## Complexity
+
+Constant.
+
+## Examples
+
+??? example
+
+    The example below demonstrates how a subtype can be set with `set_subtype`.
+
+    ```cpp
+    --8<-- "examples/byte_container_with_subtype__set_subtype.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/byte_container_with_subtype__set_subtype.output"
+    ```
+
+## See also
+
+- [Binary values](../../features/binary_values.md) - how binary values and subtypes are handled
+- [`subtype`](subtype.md) - return the binary subtype
+- [`has_subtype`](has_subtype.md) - return whether the value has a subtype
+- [`clear_subtype`](clear_subtype.md) - clears the binary subtype
+
+## Version history
+
+Added in version 3.8.0.

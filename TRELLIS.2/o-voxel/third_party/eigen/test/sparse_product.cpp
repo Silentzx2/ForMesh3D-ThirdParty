@@ -1,0 +1,1396 @@
+// This file is part of Eigen, a lightweight C++ template library
+// for linear algebra.
+//
+// Copyright (C) 2008-2011 Gael Guennebaud <gael.guennebaud@inria.fr>
+//
+// This Source Code Form is subject to the terms of the Mozilla
+// Public License v. 2.0. If a copy of the MPL was not distributed
+// with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
+// SPDX-License-Identifier: MPL-2.0
+
+static long int nb_temporaries;
+
+inline void on_temporary_creation() {
+  // here's a great place to set a breakpoint when debugging failures in this test!
+  nb_temporaries++;
+}
+
+#define EIGEN_SPARSE_CREATE_TEMPORARY_PLUGIN \
+  { on_temporary_creation(); }
+
+#include "sparse.h"
+
+#define EIGEN_TEST_ANNOYING_SCALAR_DONT_THROW
+#include "AnnoyingScalar.h"
+#include "NonCommutativeScalar.h"
+
+#define VERIFY_EVALUATION_COUNT(XPR, N)                                                   \
+  {                                                                                       \
+    nb_temporaries = 0;                                                                   \
+    CALL_SUBTEST(XPR);                                                                    \
+    if (nb_temporaries != N) std::cerr << "nb_temporaries == " << nb_temporaries << "\n"; \
+    VERIFY((#XPR) && nb_temporaries == N);                                                \
+  }
+
+template <typename Lhs, typename Rhs, typename = void>
+struct has_product : std::false_type {};
+
+template <typename Lhs, typename Rhs>
+struct has_product<Lhs, Rhs, internal::void_t<decltype(std::declval<const Lhs&>() * std::declval<const Rhs&>())>>
+    : std::true_type {};
+
+template <typename SparseMatrixType>
+void sparse_structured_view_product_sfinae() {
+  typedef typename SparseMatrixType::Scalar Scalar;
+  typedef Matrix<Scalar, Dynamic, Dynamic> DenseMatrixType;
+  typedef Matrix<Scalar, Dynamic, 1> DenseVectorType;
+  typedef decltype(std::declval<SparseMatrixType&>().template triangularView<Lower>()) TriangularViewType;
+  typedef decltype(std::declval<SparseMatrixType&>().template selfadjointView<Lower>()) SelfAdjointViewType;
+  typedef decltype(std::declval<const DenseVectorType&>().asDiagonal()) DiagonalType;
+
+  STATIC_CHECK((has_product<TriangularViewType, SparseMatrixType>::value));
+  STATIC_CHECK((has_product<SparseMatrixType, TriangularViewType>::value));
+  STATIC_CHECK((has_product<TriangularViewType, DenseMatrixType>::value));
+  STATIC_CHECK((has_product<DenseMatrixType, TriangularViewType>::value));
+  STATIC_CHECK((has_product<TriangularViewType, DiagonalType>::value));
+  STATIC_CHECK((has_product<DiagonalType, TriangularViewType>::value));
+
+  STATIC_CHECK((has_product<SelfAdjointViewType, SparseMatrixType>::value));
+  STATIC_CHECK((has_product<SparseMatrixType, SelfAdjointViewType>::value));
+  STATIC_CHECK((has_product<SelfAdjointViewType, DenseMatrixType>::value));
+  STATIC_CHECK((has_product<DenseMatrixType, SelfAdjointViewType>::value));
+  STATIC_CHECK((has_product<SelfAdjointViewType, DiagonalType>::value));
+  STATIC_CHECK((has_product<DiagonalType, SelfAdjointViewType>::value));
+}
+
+template <typename SparseMatrixType>
+void sparse_product() {
+  typedef typename SparseMatrixType::StorageIndex StorageIndex;
+  Index n = 100;
+  const Index rows = internal::random<Index>(1, n);
+  const Index cols = internal::random<Index>(1, n);
+  const Index depth = internal::random<Index>(1, n);
+  typedef typename SparseMatrixType::Scalar Scalar;
+  enum { Flags = SparseMatrixType::Flags };
+
+  double density = (std::max)(8. / (rows * cols), 0.2);
+  typedef Matrix<Scalar, Dynamic, Dynamic> DenseMatrix;
+  typedef Matrix<Scalar, Dynamic, 1> DenseVector;
+  typedef Matrix<Scalar, 1, Dynamic> RowDenseVector;
+  typedef SparseVector<Scalar, 0, StorageIndex> ColSpVector;
+  typedef SparseVector<Scalar, RowMajor, StorageIndex> RowSpVector;
+
+  Scalar s1 = internal::random<Scalar>();
+  Scalar s2 = internal::random<Scalar>();
+
+  // test matrix-matrix product
+  {
+    DenseMatrix refMat2 = DenseMatrix::Zero(rows, depth);
+    DenseMatrix refMat2t = DenseMatrix::Zero(depth, rows);
+    DenseMatrix refMat3 = DenseMatrix::Zero(depth, cols);
+    DenseMatrix refMat3t = DenseMatrix::Zero(cols, depth);
+    DenseMatrix refMat4 = DenseMatrix::Zero(rows, cols);
+    DenseMatrix refMat4t = DenseMatrix::Zero(cols, rows);
+    DenseMatrix refMat5 = DenseMatrix::Random(depth, cols);
+    DenseMatrix refMat6 = DenseMatrix::Random(rows, rows);
+    DenseMatrix dm4 = DenseMatrix::Zero(rows, rows);
+    //     DenseVector dv1 = DenseVector::Random(rows);
+    SparseMatrixType m2(rows, depth);
+    SparseMatrixType m2t(depth, rows);
+    SparseMatrixType m3(depth, cols);
+    SparseMatrixType m3t(cols, depth);
+    SparseMatrixType m4(rows, cols);
+    SparseMatrixType m4t(cols, rows);
+    SparseMatrixType m6(rows, rows);
+    initSparse(density, refMat2, m2);
+    initSparse(density, refMat2t, m2t);
+    initSparse(density, refMat3, m3);
+    initSparse(density, refMat3t, m3t);
+    initSparse(density, refMat4, m4);
+    initSparse(density, refMat4t, m4t);
+    initSparse(density, refMat6, m6);
+
+    //     int c = internal::random<int>(0,depth-1);
+
+    // sparse * sparse
+    VERIFY_IS_APPROX(m4 = m2 * m3, refMat4 = refMat2 * refMat3);
+    VERIFY_IS_APPROX(m4 = m2t.transpose() * m3, refMat4 = refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(m4 = m2t.transpose() * m3t.transpose(), refMat4 = refMat2t.transpose() * refMat3t.transpose());
+    VERIFY_IS_APPROX(m4 = m2 * m3t.transpose(), refMat4 = refMat2 * refMat3t.transpose());
+
+    VERIFY_IS_APPROX(m4 = m2 * m3 / s1, refMat4 = refMat2 * refMat3 / s1);
+    VERIFY_IS_APPROX(m4 = m2 * m3 * s1, refMat4 = refMat2 * refMat3 * s1);
+    VERIFY_IS_APPROX(m4 = s2 * m2 * m3 * s1, refMat4 = s2 * refMat2 * refMat3 * s1);
+    VERIFY_IS_APPROX(m4 = (m2 + m2) * m3, refMat4 = (refMat2 + refMat2) * refMat3);
+    VERIFY_IS_APPROX(m4 = m2 * m3.leftCols(cols / 2), refMat4 = refMat2 * refMat3.leftCols(cols / 2));
+    VERIFY_IS_APPROX(m4 = m2 * (m3 + m3).leftCols(cols / 2),
+                     refMat4 = refMat2 * (refMat3 + refMat3).leftCols(cols / 2));
+
+    VERIFY_IS_APPROX(m4 = (m2 * m3).pruned(0), refMat4 = refMat2 * refMat3);
+    VERIFY_IS_APPROX(m4 = (m2t.transpose() * m3).pruned(0), refMat4 = refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(m4 = (m2t.transpose() * m3t.transpose()).pruned(0),
+                     refMat4 = refMat2t.transpose() * refMat3t.transpose());
+    VERIFY_IS_APPROX(m4 = (m2 * m3t.transpose()).pruned(0), refMat4 = refMat2 * refMat3t.transpose());
+
+#ifndef EIGEN_SPARSE_PRODUCT_IGNORE_TEMPORARY_COUNT
+    // make sure the right product implementation is called:
+    if ((!SparseMatrixType::IsRowMajor) && m2.rows() <= m3.cols()) {
+      VERIFY_EVALUATION_COUNT(m4 = m2 * m3, 2);  // 2 for transposing and get a sorted result.
+      VERIFY_EVALUATION_COUNT(m4 = (m2 * m3).pruned(0), 1);
+      VERIFY_EVALUATION_COUNT(m4 = (m2 * m3).eval().pruned(0), 4);
+    }
+#endif
+
+    // and that pruning is effective:
+    {
+      DenseMatrix Ad(2, 2);
+      Ad << -1, 1, 1, 1;
+      SparseMatrixType As(Ad.sparseView()), B(2, 2);
+      VERIFY_IS_EQUAL((As * As.transpose()).eval().nonZeros(), 4);
+      VERIFY_IS_EQUAL((Ad * Ad.transpose()).eval().sparseView().eval().nonZeros(), 2);
+      VERIFY_IS_EQUAL((As * As.transpose()).pruned(1e-6).eval().nonZeros(), 2);
+    }
+
+    // dense ?= sparse * sparse
+    VERIFY_IS_APPROX(dm4 = m2 * m3, refMat4 = refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 += m2 * m3, refMat4 += refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 -= m2 * m3, refMat4 -= refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 = m2t.transpose() * m3, refMat4 = refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(dm4 += m2t.transpose() * m3, refMat4 += refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(dm4 -= m2t.transpose() * m3, refMat4 -= refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(dm4 = m2t.transpose() * m3t.transpose(), refMat4 = refMat2t.transpose() * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 += m2t.transpose() * m3t.transpose(), refMat4 += refMat2t.transpose() * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 -= m2t.transpose() * m3t.transpose(), refMat4 -= refMat2t.transpose() * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 = m2 * m3t.transpose(), refMat4 = refMat2 * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 += m2 * m3t.transpose(), refMat4 += refMat2 * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 -= m2 * m3t.transpose(), refMat4 -= refMat2 * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 = m2 * m3 * s1, refMat4 = refMat2 * refMat3 * s1);
+
+    // test aliasing
+    m4 = m2;
+    refMat4 = refMat2;
+    VERIFY_IS_APPROX(m4 = m4 * m3, refMat4 = refMat4 * refMat3);
+
+    // sparse * dense matrix
+    VERIFY_IS_APPROX(dm4 = m2 * refMat3, refMat4 = refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 = m2 * refMat3t.transpose(), refMat4 = refMat2 * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 = m2t.transpose() * refMat3, refMat4 = refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(dm4 = m2t.transpose() * refMat3t.transpose(),
+                     refMat4 = refMat2t.transpose() * refMat3t.transpose());
+
+    VERIFY_IS_APPROX(dm4 = dm4 + m2 * refMat3, refMat4 = refMat4 + refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 += m2 * refMat3, refMat4 += refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 -= m2 * refMat3, refMat4 -= refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4.noalias() += m2 * refMat3, refMat4 += refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4.noalias() -= m2 * refMat3, refMat4 -= refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 = m2 * (refMat3 + refMat3), refMat4 = refMat2 * (refMat3 + refMat3));
+    VERIFY_IS_APPROX(dm4 = m2t.transpose() * (refMat3 + refMat5) * 0.5,
+                     refMat4 = refMat2t.transpose() * (refMat3 + refMat5) * 0.5);
+
+    // sparse * dense expression without DirectAccessBit (e.g. CwiseNullaryOp)
+    VERIFY_IS_APPROX(dm4 = m2 * DenseMatrix::Constant(depth, cols, s1),
+                     refMat4 = refMat2 * DenseMatrix::Constant(depth, cols, s1));
+    VERIFY_IS_APPROX(dm4 = m2 * DenseMatrix::Zero(depth, cols), refMat4 = refMat2 * DenseMatrix::Zero(depth, cols));
+
+    // sparse * dense vector
+    VERIFY_IS_APPROX(dm4.col(0) = m2 * refMat3.col(0), refMat4.col(0) = refMat2 * refMat3.col(0));
+    VERIFY_IS_APPROX(dm4.col(0) = m2 * refMat3t.transpose().col(0),
+                     refMat4.col(0) = refMat2 * refMat3t.transpose().col(0));
+    VERIFY_IS_APPROX(dm4.col(0) = m2t.transpose() * refMat3.col(0),
+                     refMat4.col(0) = refMat2t.transpose() * refMat3.col(0));
+    VERIFY_IS_APPROX(dm4.col(0) = m2t.transpose() * refMat3t.transpose().col(0),
+                     refMat4.col(0) = refMat2t.transpose() * refMat3t.transpose().col(0));
+
+    // dense * sparse
+    VERIFY_IS_APPROX(dm4 = refMat2 * m3, refMat4 = refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 = dm4 + refMat2 * m3, refMat4 = refMat4 + refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 += refMat2 * m3, refMat4 += refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 -= refMat2 * m3, refMat4 -= refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4.noalias() += refMat2 * m3, refMat4 += refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4.noalias() -= refMat2 * m3, refMat4 -= refMat2 * refMat3);
+    VERIFY_IS_APPROX(dm4 = refMat2 * m3t.transpose(), refMat4 = refMat2 * refMat3t.transpose());
+    VERIFY_IS_APPROX(dm4 = refMat2t.transpose() * m3, refMat4 = refMat2t.transpose() * refMat3);
+    VERIFY_IS_APPROX(dm4 = refMat2t.transpose() * m3t.transpose(),
+                     refMat4 = refMat2t.transpose() * refMat3t.transpose());
+
+    // sparse * dense and dense * sparse outer product
+    {
+      Index c = internal::random<Index>(0, depth - 1);
+      Index r = internal::random<Index>(0, rows - 1);
+      Index c1 = internal::random<Index>(0, cols - 1);
+      Index r1 = internal::random<Index>(0, depth - 1);
+      DenseMatrix dm5 = DenseMatrix::Random(depth, cols);
+
+      VERIFY_IS_APPROX(m4 = m2.col(c) * dm5.col(c1).transpose(), refMat4 = refMat2.col(c) * dm5.col(c1).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(m4 = m2.middleCols(c, 1) * dm5.col(c1).transpose(),
+                       refMat4 = refMat2.col(c) * dm5.col(c1).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(dm4 = m2.col(c) * dm5.col(c1).transpose(), refMat4 = refMat2.col(c) * dm5.col(c1).transpose());
+
+      VERIFY_IS_APPROX(m4 = dm5.col(c1) * m2.col(c).transpose(), refMat4 = dm5.col(c1) * refMat2.col(c).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(m4 = dm5.col(c1) * m2.middleCols(c, 1).transpose(),
+                       refMat4 = dm5.col(c1) * refMat2.col(c).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(dm4 = dm5.col(c1) * m2.col(c).transpose(), refMat4 = dm5.col(c1) * refMat2.col(c).transpose());
+
+      VERIFY_IS_APPROX(m4 = dm5.row(r1).transpose() * m2.col(c).transpose(),
+                       refMat4 = dm5.row(r1).transpose() * refMat2.col(c).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(dm4 = dm5.row(r1).transpose() * m2.col(c).transpose(),
+                       refMat4 = dm5.row(r1).transpose() * refMat2.col(c).transpose());
+
+      VERIFY_IS_APPROX(m4 = m2.row(r).transpose() * dm5.col(c1).transpose(),
+                       refMat4 = refMat2.row(r).transpose() * dm5.col(c1).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(m4 = m2.middleRows(r, 1).transpose() * dm5.col(c1).transpose(),
+                       refMat4 = refMat2.row(r).transpose() * dm5.col(c1).transpose());
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(dm4 = m2.row(r).transpose() * dm5.col(c1).transpose(),
+                       refMat4 = refMat2.row(r).transpose() * dm5.col(c1).transpose());
+
+      VERIFY_IS_APPROX(m4 = dm5.col(c1) * m2.row(r), refMat4 = dm5.col(c1) * refMat2.row(r));
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(m4 = dm5.col(c1) * m2.middleRows(r, 1), refMat4 = dm5.col(c1) * refMat2.row(r));
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(dm4 = dm5.col(c1) * m2.row(r), refMat4 = dm5.col(c1) * refMat2.row(r));
+
+      VERIFY_IS_APPROX(m4 = dm5.row(r1).transpose() * m2.row(r), refMat4 = dm5.row(r1).transpose() * refMat2.row(r));
+      VERIFY_IS_EQUAL(m4.nonZeros(), (refMat4.array() != 0).count());
+      VERIFY_IS_APPROX(dm4 = dm5.row(r1).transpose() * m2.row(r), refMat4 = dm5.row(r1).transpose() * refMat2.row(r));
+    }
+
+    VERIFY_IS_APPROX(m6 = m6 * m6, refMat6 = refMat6 * refMat6);
+
+    // sparse matrix * sparse vector
+    ColSpVector cv0(cols), cv1;
+    DenseVector dcv0(cols), dcv1;
+    initSparse(2 * density, dcv0, cv0);
+
+    RowSpVector rv0(depth), rv1;
+    RowDenseVector drv0(depth), drv1(rv1);
+    initSparse(2 * density, drv0, rv0);
+
+    VERIFY_IS_APPROX(cv1 = m3 * cv0, dcv1 = refMat3 * dcv0);
+    VERIFY_IS_APPROX(rv1 = rv0 * m3, drv1 = drv0 * refMat3);
+    VERIFY_IS_APPROX(cv1 = m3t.adjoint() * cv0, dcv1 = refMat3t.adjoint() * dcv0);
+    VERIFY_IS_APPROX(cv1 = rv0 * m3, dcv1 = drv0 * refMat3);
+    VERIFY_IS_APPROX(rv1 = m3 * cv0, drv1 = refMat3 * dcv0);
+  }
+
+  // test matrix - diagonal product
+  {
+    DenseMatrix refM2 = DenseMatrix::Zero(rows, cols);
+    DenseMatrix refM3 = DenseMatrix::Zero(rows, cols);
+    DenseMatrix d3 = DenseMatrix::Zero(rows, cols);
+    DiagonalMatrix<Scalar, Dynamic> d1(DenseVector::Random(cols));
+    DiagonalMatrix<Scalar, Dynamic> d2(DenseVector::Random(rows));
+    SparseMatrixType m2(rows, cols);
+    SparseMatrixType m3(rows, cols);
+    initSparse<Scalar>(density, refM2, m2);
+    initSparse<Scalar>(density, refM3, m3);
+    VERIFY_IS_APPROX(m3 = m2 * d1, refM3 = refM2 * d1);
+    VERIFY_IS_APPROX(m3 = m2.transpose() * d2, refM3 = refM2.transpose() * d2);
+    VERIFY_IS_APPROX(m3 = d2 * m2, refM3 = d2 * refM2);
+    VERIFY_IS_APPROX(m3 = d1 * m2.transpose(), refM3 = d1 * refM2.transpose());
+
+    // also check with a SparseWrapper:
+    DenseVector v1 = DenseVector::Random(cols);
+    DenseVector v2 = DenseVector::Random(rows);
+    DenseVector v3 = DenseVector::Random(rows);
+    VERIFY_IS_APPROX(m3 = m2 * v1.asDiagonal(), refM3 = refM2 * v1.asDiagonal());
+    VERIFY_IS_APPROX(m3 = m2.transpose() * v2.asDiagonal(), refM3 = refM2.transpose() * v2.asDiagonal());
+    VERIFY_IS_APPROX(m3 = v2.asDiagonal() * m2, refM3 = v2.asDiagonal() * refM2);
+    VERIFY_IS_APPROX(m3 = v1.asDiagonal() * m2.transpose(), refM3 = v1.asDiagonal() * refM2.transpose());
+
+    VERIFY_IS_APPROX(m3 = v2.asDiagonal() * m2 * v1.asDiagonal(), refM3 = v2.asDiagonal() * refM2 * v1.asDiagonal());
+
+    VERIFY_IS_APPROX(v2 = m2 * v1.asDiagonal() * v1, refM2 * v1.asDiagonal() * v1);
+    VERIFY_IS_APPROX(v3 = v2.asDiagonal() * m2 * v1, v2.asDiagonal() * refM2 * v1);
+
+    // evaluate to a dense matrix to check the .row() and .col() iterator functions
+    VERIFY_IS_APPROX(d3 = m2 * d1, refM3 = refM2 * d1);
+    VERIFY_IS_APPROX(d3 = m2.transpose() * d2, refM3 = refM2.transpose() * d2);
+    VERIFY_IS_APPROX(d3 = d2 * m2, refM3 = d2 * refM2);
+    VERIFY_IS_APPROX(d3 = d1 * m2.transpose(), refM3 = d1 * refM2.transpose());
+  }
+
+  // test self-adjoint and triangular-view products
+  {
+    DenseMatrix b = DenseMatrix::Random(rows, rows);
+    DenseMatrix x = DenseMatrix::Random(rows, rows);
+    DenseMatrix refX = DenseMatrix::Random(rows, rows);
+    DenseMatrix refUp = DenseMatrix::Zero(rows, rows);
+    DenseMatrix refLo = DenseMatrix::Zero(rows, rows);
+    DenseMatrix refS = DenseMatrix::Zero(rows, rows);
+    DenseMatrix refA = DenseMatrix::Zero(rows, rows);
+    SparseMatrixType mUp(rows, rows);
+    SparseMatrixType mLo(rows, rows);
+    SparseMatrixType mS(rows, rows);
+    SparseMatrixType mA(rows, rows);
+    initSparse<Scalar>(density, refA, mA);
+    initSparse<Scalar>(density, refUp, mUp, ForceRealDiag | /*ForceNonZeroDiag|*/ MakeUpperTriangular);
+    if (refUp.isZero()) {
+      refUp(0, 0) = Scalar(1);
+      mUp.coeffRef(0, 0) = Scalar(1);
+    }
+    refLo = refUp.adjoint();
+    mLo = mUp.adjoint();
+    refS = refUp + refLo;
+    refS.diagonal() *= 0.5;
+    mS = mUp + mLo;
+    // TODO be able to address the diagonal....
+    for (int k = 0; k < mS.outerSize(); ++k)
+      for (typename SparseMatrixType::InnerIterator it(mS, k); it; ++it)
+        if (it.index() == k) it.valueRef() *= Scalar(0.5);
+
+    VERIFY_IS_APPROX(refS.adjoint(), refS);
+    VERIFY_IS_APPROX(mS.adjoint(), mS);
+    VERIFY_IS_APPROX(mS, refS);
+    VERIFY_IS_APPROX(x = mS * b, refX = refS * b);
+
+    // sparse selfadjointView with dense matrices
+    VERIFY_IS_APPROX(x = mUp.template selfadjointView<Upper>() * b, refX = refS * b);
+    VERIFY_IS_APPROX(x = mLo.template selfadjointView<Lower>() * b, refX = refS * b);
+    VERIFY_IS_APPROX(x = mS.template selfadjointView<Upper | Lower>() * b, refX = refS * b);
+
+    VERIFY_IS_APPROX(x = b * mUp.template selfadjointView<Upper>(), refX = b * refS);
+    VERIFY_IS_APPROX(x = b * mLo.template selfadjointView<Lower>(), refX = b * refS);
+    VERIFY_IS_APPROX(x = b * mS.template selfadjointView<Upper | Lower>(), refX = b * refS);
+
+    VERIFY_IS_APPROX(x.noalias() += mUp.template selfadjointView<Upper>() * b, refX += refS * b);
+    VERIFY_IS_APPROX(x.noalias() -= mLo.template selfadjointView<Lower>() * b, refX -= refS * b);
+    VERIFY_IS_APPROX(x.noalias() += mS.template selfadjointView<Upper | Lower>() * b, refX += refS * b);
+
+    DenseVector scale = DenseVector::Random(rows);
+    VERIFY_IS_APPROX(x = mLo.template selfadjointView<Lower>() * scale.asDiagonal(), refX = refS * scale.asDiagonal());
+    VERIFY_IS_APPROX(x = scale.asDiagonal() * mLo.template selfadjointView<Lower>(), refX = scale.asDiagonal() * refS);
+    VERIFY_IS_APPROX(x = mUp.template selfadjointView<Upper>() * scale.asDiagonal(), refX = refS * scale.asDiagonal());
+    VERIFY_IS_APPROX(x = scale.asDiagonal() * mUp.template selfadjointView<Upper>(), refX = scale.asDiagonal() * refS);
+    VERIFY_IS_APPROX(x = mS.template selfadjointView<Upper | Lower>() * scale.asDiagonal(),
+                     refX = refS * scale.asDiagonal());
+    VERIFY_IS_APPROX(x = scale.asDiagonal() * mS.template selfadjointView<Upper | Lower>(),
+                     refX = scale.asDiagonal() * refS);
+
+    // sparse selfadjointView with sparse matrices
+    SparseMatrixType mSres(rows, rows);
+    VERIFY_IS_APPROX(mSres = mLo.template selfadjointView<Lower>() * mS,
+                     refX = refLo.template selfadjointView<Lower>() * refS);
+    VERIFY_IS_APPROX(mSres = mS * mLo.template selfadjointView<Lower>(),
+                     refX = refS * refLo.template selfadjointView<Lower>());
+    VERIFY_IS_APPROX(mSres = mLo.template selfadjointView<Lower>() * scale.asDiagonal(),
+                     refX = refS * scale.asDiagonal());
+    VERIFY_IS_APPROX(mSres = scale.asDiagonal() * mLo.template selfadjointView<Lower>(),
+                     refX = scale.asDiagonal() * refS);
+    VERIFY_IS_APPROX(mSres = mUp.template selfadjointView<Upper>() * scale.asDiagonal(),
+                     refX = refS * scale.asDiagonal());
+    VERIFY_IS_APPROX(mSres = scale.asDiagonal() * mUp.template selfadjointView<Upper>(),
+                     refX = scale.asDiagonal() * refS);
+    VERIFY_IS_APPROX(mSres = mS.template selfadjointView<Upper | Lower>() * scale.asDiagonal(),
+                     refX = refS * scale.asDiagonal());
+    VERIFY_IS_APPROX(mSres = scale.asDiagonal() * mS.template selfadjointView<Upper | Lower>(),
+                     refX = scale.asDiagonal() * refS);
+
+    // sparse triangularView with dense matrices
+    VERIFY_IS_APPROX(x = mA.template triangularView<Upper>() * b, refX = refA.template triangularView<Upper>() * b);
+    VERIFY_IS_APPROX(x = mA.template triangularView<Lower>() * b, refX = refA.template triangularView<Lower>() * b);
+    VERIFY_IS_APPROX(x = b * mA.template triangularView<Upper>(), refX = b * refA.template triangularView<Upper>());
+    VERIFY_IS_APPROX(x = b * mA.template triangularView<Lower>(), refX = b * refA.template triangularView<Lower>());
+
+    // sparse triangularView with sparse matrices
+    VERIFY_IS_APPROX(mSres = mA.template triangularView<Lower>() * mS,
+                     refX = refA.template triangularView<Lower>() * refS);
+    VERIFY_IS_APPROX(mSres = mS * mA.template triangularView<Lower>(),
+                     refX = refS * refA.template triangularView<Lower>());
+    VERIFY_IS_APPROX(mSres = mA.template triangularView<Upper>() * mS,
+                     refX = refA.template triangularView<Upper>() * refS);
+    VERIFY_IS_APPROX(mSres = mS * mA.template triangularView<Upper>(),
+                     refX = refS * refA.template triangularView<Upper>());
+
+    VERIFY_IS_APPROX(mSres = mA.template triangularView<UnitLower>() * scale.asDiagonal(),
+                     refX = DenseMatrix(refA.template triangularView<UnitLower>()) * scale.asDiagonal());
+    VERIFY_IS_APPROX(mSres = scale.asDiagonal() * mA.template triangularView<UnitLower>(),
+                     refX = scale.asDiagonal() * DenseMatrix(refA.template triangularView<UnitLower>()));
+    VERIFY_IS_APPROX(mSres = mA.template triangularView<UnitUpper>() * scale.asDiagonal(),
+                     refX = DenseMatrix(refA.template triangularView<UnitUpper>()) * scale.asDiagonal());
+    VERIFY_IS_APPROX(mSres = scale.asDiagonal() * mA.template triangularView<UnitUpper>(),
+                     refX = scale.asDiagonal() * DenseMatrix(refA.template triangularView<UnitUpper>()));
+  }
+}
+
+// New test for Bug in SparseTimeDenseProduct
+template <typename SparseMatrixType, typename DenseMatrixType>
+void sparse_product_regression_test() {
+  // This code does not compile with afflicted versions of the bug
+  SparseMatrixType sm1(3, 2);
+  DenseMatrixType m2(2, 2);
+  sm1.setZero();
+  m2.setZero();
+
+  DenseMatrixType m3 = sm1 * m2;
+
+  // This code produces a segfault with afflicted versions of another SparseTimeDenseProduct
+  // bug
+
+  SparseMatrixType sm2(20000, 2);
+  sm2.setZero();
+  DenseMatrixType m4(sm2 * m2);
+
+  VERIFY_IS_APPROX(m4(0, 0), 0.0);
+}
+
+template <typename Scalar>
+void bug_942() {
+  typedef Matrix<Scalar, Dynamic, 1> Vector;
+  typedef SparseMatrix<Scalar, ColMajor> ColSpMat;
+  typedef SparseMatrix<Scalar, RowMajor> RowSpMat;
+  ColSpMat cmA(1, 1);
+  cmA.insert(0, 0) = 1;
+
+  RowSpMat rmA(1, 1);
+  rmA.insert(0, 0) = 1;
+
+  Vector d(1);
+  d[0] = 2;
+
+  double res = 2;
+
+  VERIFY_IS_APPROX((cmA * d.asDiagonal()).eval().coeff(0, 0), res);
+  VERIFY_IS_APPROX((d.asDiagonal() * rmA).eval().coeff(0, 0), res);
+  VERIFY_IS_APPROX((rmA * d.asDiagonal()).eval().coeff(0, 0), res);
+  VERIFY_IS_APPROX((d.asDiagonal() * cmA).eval().coeff(0, 0), res);
+}
+
+template <typename Real>
+void test_mixing_types() {
+  typedef std::complex<Real> Cplx;
+  typedef SparseMatrix<Real> SpMatReal;
+  typedef SparseMatrix<Cplx> SpMatCplx;
+  typedef SparseMatrix<Cplx, RowMajor> SpRowMatCplx;
+  typedef Matrix<Real, Dynamic, Dynamic> DenseMatReal;
+  typedef Matrix<Cplx, Dynamic, Dynamic> DenseMatCplx;
+
+  Index n = internal::random<Index>(1, 100);
+  double density = (std::max)(8. / static_cast<double>(n * n), 0.2);
+
+  SpMatReal sR1(n, n);
+  SpMatCplx sC1(n, n), sC2(n, n), sC3(n, n);
+  SpRowMatCplx sCR(n, n);
+  DenseMatReal dR1(n, n);
+  DenseMatCplx dC1(n, n), dC2(n, n), dC3(n, n);
+
+  initSparse<Real>(density, dR1, sR1);
+  initSparse<Cplx>(density, dC1, sC1);
+  initSparse<Cplx>(density, dC2, sC2);
+
+  VERIFY_IS_APPROX(sC2 = (sR1 * sC1), dC3 = dR1.template cast<Cplx>() * dC1);
+  VERIFY_IS_APPROX(sC2 = (sC1 * sR1), dC3 = dC1 * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sC2 = (sR1.transpose() * sC1), dC3 = dR1.template cast<Cplx>().transpose() * dC1);
+  VERIFY_IS_APPROX(sC2 = (sC1.transpose() * sR1), dC3 = dC1.transpose() * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sC2 = (sR1 * sC1.transpose()), dC3 = dR1.template cast<Cplx>() * dC1.transpose());
+  VERIFY_IS_APPROX(sC2 = (sC1 * sR1.transpose()), dC3 = dC1 * dR1.template cast<Cplx>().transpose());
+  VERIFY_IS_APPROX(sC2 = (sR1.transpose() * sC1.transpose()),
+                   dC3 = dR1.template cast<Cplx>().transpose() * dC1.transpose());
+  VERIFY_IS_APPROX(sC2 = (sC1.transpose() * sR1.transpose()),
+                   dC3 = dC1.transpose() * dR1.template cast<Cplx>().transpose());
+
+  VERIFY_IS_APPROX(sCR = (sR1 * sC1), dC3 = dR1.template cast<Cplx>() * dC1);
+  VERIFY_IS_APPROX(sCR = (sC1 * sR1), dC3 = dC1 * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sCR = (sR1.transpose() * sC1), dC3 = dR1.template cast<Cplx>().transpose() * dC1);
+  VERIFY_IS_APPROX(sCR = (sC1.transpose() * sR1), dC3 = dC1.transpose() * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sCR = (sR1 * sC1.transpose()), dC3 = dR1.template cast<Cplx>() * dC1.transpose());
+  VERIFY_IS_APPROX(sCR = (sC1 * sR1.transpose()), dC3 = dC1 * dR1.template cast<Cplx>().transpose());
+  VERIFY_IS_APPROX(sCR = (sR1.transpose() * sC1.transpose()),
+                   dC3 = dR1.template cast<Cplx>().transpose() * dC1.transpose());
+  VERIFY_IS_APPROX(sCR = (sC1.transpose() * sR1.transpose()),
+                   dC3 = dC1.transpose() * dR1.template cast<Cplx>().transpose());
+
+  VERIFY_IS_APPROX(sC2 = (sR1 * sC1).pruned(), dC3 = dR1.template cast<Cplx>() * dC1);
+  VERIFY_IS_APPROX(sC2 = (sC1 * sR1).pruned(), dC3 = dC1 * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sC2 = (sR1.transpose() * sC1).pruned(), dC3 = dR1.template cast<Cplx>().transpose() * dC1);
+  VERIFY_IS_APPROX(sC2 = (sC1.transpose() * sR1).pruned(), dC3 = dC1.transpose() * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sC2 = (sR1 * sC1.transpose()).pruned(), dC3 = dR1.template cast<Cplx>() * dC1.transpose());
+  VERIFY_IS_APPROX(sC2 = (sC1 * sR1.transpose()).pruned(), dC3 = dC1 * dR1.template cast<Cplx>().transpose());
+  VERIFY_IS_APPROX(sC2 = (sR1.transpose() * sC1.transpose()).pruned(),
+                   dC3 = dR1.template cast<Cplx>().transpose() * dC1.transpose());
+  VERIFY_IS_APPROX(sC2 = (sC1.transpose() * sR1.transpose()).pruned(),
+                   dC3 = dC1.transpose() * dR1.template cast<Cplx>().transpose());
+
+  VERIFY_IS_APPROX(sCR = (sR1 * sC1).pruned(), dC3 = dR1.template cast<Cplx>() * dC1);
+  VERIFY_IS_APPROX(sCR = (sC1 * sR1).pruned(), dC3 = dC1 * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sCR = (sR1.transpose() * sC1).pruned(), dC3 = dR1.template cast<Cplx>().transpose() * dC1);
+  VERIFY_IS_APPROX(sCR = (sC1.transpose() * sR1).pruned(), dC3 = dC1.transpose() * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(sCR = (sR1 * sC1.transpose()).pruned(), dC3 = dR1.template cast<Cplx>() * dC1.transpose());
+  VERIFY_IS_APPROX(sCR = (sC1 * sR1.transpose()).pruned(), dC3 = dC1 * dR1.template cast<Cplx>().transpose());
+  VERIFY_IS_APPROX(sCR = (sR1.transpose() * sC1.transpose()).pruned(),
+                   dC3 = dR1.template cast<Cplx>().transpose() * dC1.transpose());
+  VERIFY_IS_APPROX(sCR = (sC1.transpose() * sR1.transpose()).pruned(),
+                   dC3 = dC1.transpose() * dR1.template cast<Cplx>().transpose());
+
+  VERIFY_IS_APPROX(dC2 = (sR1 * sC1), dC3 = dR1.template cast<Cplx>() * dC1);
+  VERIFY_IS_APPROX(dC2 = (sC1 * sR1), dC3 = dC1 * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(dC2 = (sR1.transpose() * sC1), dC3 = dR1.template cast<Cplx>().transpose() * dC1);
+  VERIFY_IS_APPROX(dC2 = (sC1.transpose() * sR1), dC3 = dC1.transpose() * dR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(dC2 = (sR1 * sC1.transpose()), dC3 = dR1.template cast<Cplx>() * dC1.transpose());
+  VERIFY_IS_APPROX(dC2 = (sC1 * sR1.transpose()), dC3 = dC1 * dR1.template cast<Cplx>().transpose());
+  VERIFY_IS_APPROX(dC2 = (sR1.transpose() * sC1.transpose()),
+                   dC3 = dR1.template cast<Cplx>().transpose() * dC1.transpose());
+  VERIFY_IS_APPROX(dC2 = (sC1.transpose() * sR1.transpose()),
+                   dC3 = dC1.transpose() * dR1.template cast<Cplx>().transpose());
+
+  VERIFY_IS_APPROX(dC2 = dR1 * sC1, dC3 = dR1.template cast<Cplx>() * sC1);
+  VERIFY_IS_APPROX(dC2 = sR1 * dC1, dC3 = sR1.template cast<Cplx>() * dC1);
+  VERIFY_IS_APPROX(dC2 = dC1 * sR1, dC3 = dC1 * sR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(dC2 = sC1 * dR1, dC3 = sC1 * dR1.template cast<Cplx>());
+
+  VERIFY_IS_APPROX(dC2 = dR1.row(0) * sC1, dC3 = dR1.template cast<Cplx>().row(0) * sC1);
+  VERIFY_IS_APPROX(dC2 = sR1 * dC1.col(0), dC3 = sR1.template cast<Cplx>() * dC1.col(0));
+  VERIFY_IS_APPROX(dC2 = dC1.row(0) * sR1, dC3 = dC1.row(0) * sR1.template cast<Cplx>());
+  VERIFY_IS_APPROX(dC2 = sC1 * dR1.col(0), dC3 = sC1 * dR1.template cast<Cplx>().col(0));
+}
+
+// Test mixed storage types
+template <int OrderA, int OrderB, int OrderC>
+void test_mixed_storage_imp() {
+  typedef float Real;
+  typedef Matrix<Real, Dynamic, Dynamic> DenseMat;
+
+  // Case: Large inputs but small result
+  {
+    SparseMatrix<Real, OrderA> A(8, 512);
+    SparseMatrix<Real, OrderB> B(512, 8);
+    DenseMat refA(8, 512);
+    DenseMat refB(512, 8);
+
+    initSparse<Real>(0.1, refA, A);
+    initSparse<Real>(0.1, refB, B);
+
+    SparseMatrix<Real, OrderC, std::int8_t> result;
+    SparseMatrix<Real, OrderC> result_large;
+    DenseMat refResult;
+
+    VERIFY_IS_APPROX(result = (A * B), refResult = refA * refB);
+  }
+
+  // Case: Small input but large result
+  {
+    SparseMatrix<Real, OrderA, std::int8_t> A(127, 8);
+    SparseMatrix<Real, OrderB, std::int8_t> B(8, 127);
+    DenseMat refA(127, 8);
+    DenseMat refB(8, 127);
+
+    initSparse<Real>(0.01, refA, A);
+    initSparse<Real>(0.01, refB, B);
+
+    SparseMatrix<Real, OrderC> result;
+    SparseMatrix<Real, OrderC> result_large;
+    DenseMat refResult;
+
+    VERIFY_IS_APPROX(result = (A * B), refResult = refA * refB);
+  }
+}
+
+template <typename = void>
+void test_mixed_storage() {
+  test_mixed_storage_imp<RowMajor, RowMajor, RowMajor>();
+  test_mixed_storage_imp<RowMajor, RowMajor, ColMajor>();
+  test_mixed_storage_imp<RowMajor, ColMajor, RowMajor>();
+  test_mixed_storage_imp<RowMajor, ColMajor, ColMajor>();
+  test_mixed_storage_imp<ColMajor, RowMajor, RowMajor>();
+  test_mixed_storage_imp<ColMajor, RowMajor, ColMajor>();
+  test_mixed_storage_imp<ColMajor, ColMajor, RowMajor>();
+  test_mixed_storage_imp<ColMajor, ColMajor, ColMajor>();
+}
+
+// The pruned sparse*sparse product accumulates each column into an AmbiVector,
+// which stores its coefficients either in a dense buffer or in a linked list of
+// (index, value) nodes depending on the estimated density. Both storage modes
+// must construct, move, and destroy the coefficients properly for
+// non-trivially-copyable scalars (issue #2873).
+template <typename = void>
+void test_pruned_product_custom_scalar() {
+  typedef SparseMatrix<AnnoyingScalar> SpMat;
+  typedef Matrix<AnnoyingScalar, Dynamic, Dynamic> DenseMat;
+  int instances_before = AnnoyingScalar::instances;
+  {
+    // Low density runs the AmbiVector in linked-list mode, high density in
+    // dense-buffer mode.
+    for (double density : {0.02, 0.3}) {
+      const Index n = 50;
+      SpMat A(n, n), B(n, n);
+      for (Index k = 0; k < Index(density * n * n); ++k) {
+        A.coeffRef(internal::random<Index>(0, n - 1), internal::random<Index>(0, n - 1)) =
+            AnnoyingScalar(internal::random<float>());
+        B.coeffRef(internal::random<Index>(0, n - 1), internal::random<Index>(0, n - 1)) =
+            AnnoyingScalar(internal::random<float>());
+      }
+      SpMat C = (A * B).pruned();
+      DenseMat refC = DenseMat(A).lazyProduct(DenseMat(B));
+      VERIFY_IS_APPROX(DenseMat(C), refC);
+    }
+    // A single dense column in a large matrix overflows the initial node
+    // capacity and exercises the linked-list reallocation path.
+    {
+      const Index n = 1200;
+      SpMat A(n, n), B(n, n);
+      for (Index i = 0; i < 900; ++i) A.coeffRef(i, 0) = AnnoyingScalar(float(i % 7) + 1.0f);
+      B.coeffRef(0, 0) = AnnoyingScalar(2.0f);
+      SpMat C = (A * B).pruned();
+      VERIFY_IS_EQUAL(C.nonZeros(), 900);
+      for (Index i = 0; i < 900; i += 123) {
+        VERIFY_IS_APPROX(C.coeff(i, 0), AnnoyingScalar(2.0f * (float(i % 7) + 1.0f)));
+      }
+    }
+  }
+  // Every constructed AnnoyingScalar must have been destroyed again.
+  VERIFY_IS_EQUAL(AnnoyingScalar::instances, instances_before);
+}
+
+// setZero() drops the AmbiVector's whole linked list, and the pruned product
+// reaches it through init(), which drops the list too. Neither may abandon the
+// coefficients the dropped nodes own, and neither may leave a node behind for
+// the next coeffRef() to construct over.
+template <typename = void>
+void test_ambivector_discard_custom_scalar() {
+  typedef internal::AmbiVector<AnnoyingScalar, int> AmbiVec;
+  const Index n = 32;
+  int instances_before = AnnoyingScalar::instances;
+  {
+    AmbiVec v(n);
+    for (int discard = 0; discard < 2; ++discard) {
+      v.init(IsSparse);
+      v.restart();
+      for (Index i = 0; i < n; i += 3) v.coeffRef(i) = AnnoyingScalar(float(i) + 1.0f);
+      VERIFY_IS_EQUAL(v.nonZeros(), (n + 2) / 3);
+
+      if (discard == 0)
+        v.setZero();
+      else
+        v.init(IsSparse);
+      VERIFY_IS_EQUAL(v.nonZeros(), 0);
+
+      // Reinserting must find storage no live node occupies.
+      v.restart();
+      v.coeffRef(1) = AnnoyingScalar(5.0f);
+      VERIFY_IS_APPROX(v.coeff(1), AnnoyingScalar(5.0f));
+      VERIFY_IS_APPROX(v.coeff(0), AnnoyingScalar(0.0f));
+    }
+  }
+  VERIFY_IS_EQUAL(AnnoyingScalar::instances, instances_before);
+}
+
+// resize() reuses its allocation whenever the new size still fits, and the
+// sub-vector bounds an iterator walks describe the size the vector had before.
+template <typename = void>
+void test_ambivector_resize_bounds() {
+  typedef internal::AmbiVector<double, int> AmbiVec;
+  {
+    AmbiVec v(20);
+    v.init(IsDense);
+    v.setZero();
+    v.coeffRef(15) = 15.0;
+
+    // Shrinking below the coefficient just written: iteration must end at the
+    // new size rather than reaching a coefficient that is no longer part of the
+    // vector.
+    v.resize(10);
+    VERIFY_IS_EQUAL(v.size(), 10);
+    v.init(IsDense);
+    Index count = 0;
+    for (AmbiVec::Iterator it(v); it; ++it) {
+      VERIFY(it.index() < v.size());
+      ++count;
+    }
+    VERIFY_IS_EQUAL(count, 0);
+  }
+  {
+    // Growing within the spare capacity: iteration must reach the coefficients
+    // the new size added.
+    AmbiVec v(10);
+    v.init(IsDense);
+    v.setZero();
+    v.resize(20);
+    VERIFY_IS_EQUAL(v.size(), 20);
+    v.init(IsDense);
+    v.setZero();
+    v.coeffRef(19) = 19.0;
+    Index count = 0;
+    for (AmbiVec::Iterator it(v); it; ++it) {
+      VERIFY_IS_EQUAL(it.index(), 19);
+      VERIFY_IS_APPROX(it.value(), 19.0);
+      ++count;
+    }
+    VERIFY_IS_EQUAL(count, 1);
+  }
+}
+
+#if defined(EIGEN_EXCEPTIONS)
+namespace ambivector_throwing {
+struct scalar_exception {};
+
+// A scalar that counts its live instances and can be made to throw from the
+// constructor AmbiVector builds a node's coefficient with, or from relocating an
+// already stored coefficient when the list outgrows its capacity. Relocation is
+// keyed on a nonzero source value, which a freshly built node never has, so that
+// each flag selects exactly one of the two paths whether or not the compiler
+// elides the initialization of a node's coefficient from Scalar(0).
+struct ThrowingScalar {
+  static int live;
+  static bool throw_on_construction;
+  static bool throw_on_relocation;
+
+  float value;
+
+  ThrowingScalar() : value(0) { ++live; }
+  ThrowingScalar(int v) : value(float(v)) {
+    if (throw_on_construction) throw scalar_exception();
+    ++live;
+  }
+  ThrowingScalar(const ThrowingScalar& other) : value(other.value) {
+    if (throw_on_relocation && other.value != 0) throw scalar_exception();
+    ++live;
+  }
+  ThrowingScalar(ThrowingScalar&& other) {
+    if (throw_on_relocation && other.value != 0) throw scalar_exception();
+    value = other.value;
+    ++live;
+  }
+  ThrowingScalar& operator=(const ThrowingScalar& other) {
+    value = other.value;
+    return *this;
+  }
+  ThrowingScalar& operator=(ThrowingScalar&& other) {
+    value = other.value;
+    return *this;
+  }
+  ~ThrowingScalar() { --live; }
+};
+
+int ThrowingScalar::live = 0;
+bool ThrowingScalar::throw_on_construction = false;
+bool ThrowingScalar::throw_on_relocation = false;
+}  // namespace ambivector_throwing
+
+// A coefficient that fails to construct leaves no node: the count of live nodes
+// the destructor walks may not include it, and the vector must remain usable.
+template <typename = void>
+void test_ambivector_failed_insertion() {
+  using ambivector_throwing::ThrowingScalar;
+  typedef internal::AmbiVector<ThrowingScalar, int> AmbiVec;
+  const int live_before = ThrowingScalar::live;
+  {
+    AmbiVec v(8);
+    v.init(IsSparse);
+    v.restart();
+
+    ThrowingScalar::throw_on_construction = true;
+    bool threw = false;
+    try {
+      v.coeffRef(0);
+    } catch (const ambivector_throwing::scalar_exception&) {
+      threw = true;
+    }
+    ThrowingScalar::throw_on_construction = false;
+    VERIFY(threw);
+    VERIFY_IS_EQUAL(v.nonZeros(), 0);
+
+    v.restart();
+    v.coeffRef(0) = ThrowingScalar(3);
+    v.coeffRef(4) = ThrowingScalar(4);
+    VERIFY_IS_EQUAL(v.nonZeros(), 2);
+
+    // The same for the two remaining insertion branches, which reach a node through the list
+    // rather than starting one: a new lowest index, and an index past the last node.
+    v.setZero();
+    v.restart();
+    v.coeffRef(5) = ThrowingScalar(5);
+
+    ThrowingScalar::throw_on_construction = true;
+    threw = false;
+    try {
+      v.coeffRef(0);
+    } catch (const ambivector_throwing::scalar_exception&) {
+      threw = true;
+    }
+    ThrowingScalar::throw_on_construction = false;
+    VERIFY(threw);
+    VERIFY_IS_EQUAL(v.nonZeros(), 1);
+
+    ThrowingScalar::throw_on_construction = true;
+    threw = false;
+    try {
+      v.coeffRef(7);
+    } catch (const ambivector_throwing::scalar_exception&) {
+      threw = true;
+    }
+    ThrowingScalar::throw_on_construction = false;
+    VERIFY(threw);
+    VERIFY_IS_EQUAL(v.nonZeros(), 1);
+
+    v.restart();
+    v.coeffRef(0) = ThrowingScalar(1);
+    v.coeffRef(7) = ThrowingScalar(7);
+    VERIFY_IS_EQUAL(v.nonZeros(), 3);
+  }
+  VERIFY_IS_EQUAL(ThrowingScalar::live, live_before);
+}
+
+// A throwing relocation must release the buffer it was relocating into and
+// leave the capacity describing the buffer the vector still owns, so that the
+// next insertion relocates again instead of writing past its end. The leak
+// itself shows up under a leak checker; the retry below is what fails when the
+// capacity has already been advanced.
+template <typename = void>
+void test_ambivector_failed_reallocation() {
+  using ambivector_throwing::ThrowingScalar;
+  typedef internal::AmbiVector<ThrowingScalar, int> AmbiVec;
+  const int live_before = ThrowingScalar::live;
+  {
+    // Sized so that the initial node capacity is a fraction of the vector's own
+    // size, which is what makes the reallocation path reachable at all.
+    const Index n = 1200;
+    AmbiVec v(n);
+    v.init(IsSparse);
+    v.restart();
+
+    // Insert until the list has to grow, which is the first insertion that
+    // relocates an already stored coefficient and therefore the first that
+    // throws.
+    ThrowingScalar::throw_on_relocation = true;
+    Index inserted = 0;
+    bool threw = false;
+    while (!threw) {
+      VERIFY(inserted < n);
+      try {
+        // In C++14 mode, NVHPC 22.9 through at least 26.5 do not destroy the right-hand temporary if a combined
+        // assignment's coeffRef() throws.
+        ThrowingScalar& value = v.coeffRef(inserted);
+        value = ThrowingScalar(1);
+        ++inserted;
+      } catch (const ambivector_throwing::scalar_exception&) {
+        threw = true;
+      }
+    }
+    ThrowingScalar::throw_on_relocation = false;
+    VERIFY(inserted > 0);
+    VERIFY_IS_EQUAL(v.nonZeros(), inserted);
+
+    // Same insertion again, now relocating for real.
+    v.restart();
+    v.coeffRef(inserted) = ThrowingScalar(2);
+    VERIFY_IS_EQUAL(v.nonZeros(), inserted + 1);
+  }
+  VERIFY_IS_EQUAL(ThrowingScalar::live, live_before);
+}
+
+// An insertion at the front of a list that has filled its capacity must relocate the list first, not write a node
+// past its end. Descending indices make every insertion a front insertion. A write past the end is invisible
+// without a sanitizer, but the relocation it skips is not: it throws here.
+template <typename = void>
+void test_ambivector_front_insertion_relocates() {
+  using ambivector_throwing::ThrowingScalar;
+  typedef internal::AmbiVector<ThrowingScalar, int> AmbiVec;
+  const int live_before = ThrowingScalar::live;
+  {
+    const Index n = 1200;  // a list capacity of a third of n
+    AmbiVec v(n);
+    v.init(IsSparse);
+    v.restart();
+
+    ThrowingScalar::throw_on_relocation = true;
+    Index inserted = 0;
+    bool threw = false;
+    while (!threw && inserted < n / 2) {
+      try {
+        ThrowingScalar& value = v.coeffRef(n - 1 - inserted);
+        value = ThrowingScalar(1);
+        ++inserted;
+      } catch (const ambivector_throwing::scalar_exception&) {
+        threw = true;
+      }
+    }
+    ThrowingScalar::throw_on_relocation = false;
+    VERIFY(threw);
+    VERIFY_IS_EQUAL(v.nonZeros(), inserted);
+
+    v.restart();
+    v.coeffRef(n - 1 - inserted) = ThrowingScalar(2);
+    VERIFY_IS_EQUAL(v.nonZeros(), inserted + 1);
+  }
+  VERIFY_IS_EQUAL(ThrowingScalar::live, live_before);
+}
+#endif  // EIGEN_EXCEPTIONS
+
+// A list that fills its initial capacity must grow before an insertion at its front.
+template <typename = void>
+void test_ambivector_front_insertion_growth() {
+  const int n = 1000;
+  SparseMatrix<double> A(n, 2), B(2, 100);
+  for (int i = 1; i <= n / 2; ++i) A.insert(i, 0) = 1.0;
+  A.insert(0, 1) = 2.0;
+  B.insert(0, 0) = 1.0;
+  B.insert(1, 0) = 1.0;
+  SparseMatrix<double> C = (A * B).pruned();
+  VERIFY_IS_EQUAL(C.nonZeros(), n / 2 + 1);
+  VERIFY_IS_APPROX(MatrixXd(C.toDense()), MatrixXd(A.toDense() * B.toDense()));
+}
+
+template <typename = void>
+void test_pruned_product_row_vector() {
+  SparseMatrix<double> A(4, 3);
+  A.insert(0, 1) = 1;
+  A.insert(3, 0) = 3;
+  SparseVector<double, RowMajor> r(4);
+  r.insert(0) = 2;
+  r.insert(3) = 5;
+  SparseVector<double, RowMajor> c = (r * A).pruned();
+  VERIFY_IS_APPROX(MatrixXd(c.toDense()), MatrixXd(r.toDense() * A.toDense()));
+
+  // A row-major product whose nested lhs evaluates column-major.
+  SparseMatrix<double> P(4, 4), Q(4, 4);
+  SparseMatrix<double, RowMajor> S(4, 4);
+  for (int i = 0; i < 4; ++i) {
+    P.insert(i, i) = i + 1;
+    Q.insert(i, (i + 1) % 4) = 2;
+    S.insert(i, (i + 2) % 4) = 3;
+  }
+  SparseMatrix<double, RowMajor> R = (P * Q * S).pruned();
+  VERIFY_IS_APPROX(MatrixXd(R.toDense()), MatrixXd(P.toDense() * Q.toDense() * S.toDense()));
+}
+
+template <typename = void>
+void test_sparse_product_mul_assign() {
+  SparseMatrix<double> A(3, 3), B(3, 3);
+  A.insert(0, 1) = 2;
+  A.insert(2, 2) = 3;
+  B.insert(1, 0) = 5;
+  B.insert(2, 1) = 7;
+  const MatrixXd ref = A.toDense() * B.toDense();
+  A *= B;
+  VERIFY_IS_APPROX(MatrixXd(A.toDense()), ref);
+}
+
+template <int Tag>
+struct SparseCwiseScalar {
+  explicit SparseCwiseScalar(int v = 0) : value(v) {}
+  int value;
+};
+
+SparseCwiseScalar<2> operator*(const SparseCwiseScalar<0>& lhs, const SparseCwiseScalar<1>& rhs) {
+  return SparseCwiseScalar<2>(lhs.value * rhs.value);
+}
+
+SparseCwiseScalar<2> operator+(const SparseCwiseScalar<0>& lhs, const SparseCwiseScalar<1>& rhs) {
+  return SparseCwiseScalar<2>(lhs.value + rhs.value);
+}
+
+SparseCwiseScalar<3> operator*(const SparseCwiseScalar<1>& lhs, const SparseCwiseScalar<0>& rhs) {
+  return SparseCwiseScalar<3>(lhs.value * rhs.value);
+}
+
+namespace Eigen {
+template <>
+struct ScalarBinaryOpTraits<SparseCwiseScalar<0>, SparseCwiseScalar<1>,
+                            internal::scalar_product_op<SparseCwiseScalar<0>, SparseCwiseScalar<1>>> {
+  using ReturnType = SparseCwiseScalar<2>;
+};
+
+template <>
+struct ScalarBinaryOpTraits<SparseCwiseScalar<0>, SparseCwiseScalar<1>,
+                            internal::scalar_sum_op<SparseCwiseScalar<0>, SparseCwiseScalar<1>>> {
+  using ReturnType = SparseCwiseScalar<2>;
+};
+
+template <>
+struct ScalarBinaryOpTraits<SparseCwiseScalar<1>, SparseCwiseScalar<0>,
+                            internal::scalar_product_op<SparseCwiseScalar<1>, SparseCwiseScalar<0>>> {
+  using ReturnType = SparseCwiseScalar<3>;
+};
+}  // namespace Eigen
+
+template <int Order>
+void test_sparse_cwise_product_operand_types() {
+  using Left = SparseCwiseScalar<0>;
+  using Right = SparseCwiseScalar<1>;
+  using Result = SparseCwiseScalar<2>;
+  SparseMatrix<Left, Order> lhs(3, 3);
+  lhs.reserve(VectorXi::Constant(3, 3));
+  lhs.insert(0, 1) = Left(2);
+  lhs.insert(2, 0) = Left(-3);
+  Matrix<Right, Dynamic, Dynamic, Order> rhs(3, 3);
+  for (Index j = 0; j < 3; ++j)
+    for (Index i = 0; i < 3; ++i) rhs(i, j) = Right(int(i + 2 * j + 1));
+
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    SparseMatrix<Result, Order> result = lhs.cwiseProduct(rhs);
+    VERIFY_IS_EQUAL(result.nonZeros(), 2);
+    for (Index j = 0; j < 3; ++j)
+      for (Index i = 0; i < 3; ++i) VERIFY_IS_EQUAL(result.coeff(i, j).value, lhs.coeff(i, j).value * rhs(i, j).value);
+    lhs.makeCompressed();
+  }
+
+  Matrix<Left, Dynamic, Dynamic, Order> denseLeft(3, 3);
+  SparseMatrix<Right, Order> sparseRight(3, 3);
+  sparseRight.reserve(VectorXi::Constant(3, 3));
+  sparseRight.insert(0, 1) = Right(4);
+  sparseRight.insert(2, 0) = Right(5);
+  for (Index j = 0; j < 3; ++j)
+    for (Index i = 0; i < 3; ++i) denseLeft(i, j) = Left(int(i + 2 * j + 1));
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    const SparseMatrix<Result, Order> result = denseLeft.cwiseProduct(sparseRight);
+    VERIFY_IS_EQUAL(result.nonZeros(), 2);
+    for (Index j = 0; j < 3; ++j)
+      for (Index i = 0; i < 3; ++i)
+        VERIFY_IS_EQUAL(result.coeff(i, j).value, denseLeft(i, j).value * sparseRight.coeff(i, j).value);
+    sparseRight.makeCompressed();
+  }
+}
+
+template <int Order>
+void test_sparse_cwise_sum_operand_types() {
+  using Left = SparseCwiseScalar<0>;
+  using Right = SparseCwiseScalar<1>;
+  using Result = SparseCwiseScalar<2>;
+  SparseMatrix<Left, Order> lhs(3, 3);
+  SparseMatrix<Right, Order> rhs(3, 3);
+  lhs.reserve(VectorXi::Constant(3, 3));
+  rhs.reserve(VectorXi::Constant(3, 3));
+  lhs.insert(0, 1) = Left(2);
+  lhs.insert(2, 0) = Left(-3);
+  rhs.insert(0, 1) = Right(4);
+  rhs.insert(1, 2) = Right(5);
+  Matrix<Left, Dynamic, Dynamic, Order> denseLhs(3, 3);
+  Matrix<Right, Dynamic, Dynamic, Order> denseRhs(3, 3);
+  for (Index j = 0; j < 3; ++j)
+    for (Index i = 0; i < 3; ++i) {
+      denseLhs(i, j) = Left(int(i + j + 1));
+      denseRhs(i, j) = Right(int(i - j - 1));
+    }
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    const SparseMatrix<Result, Order> sparse = lhs + rhs;
+    const Matrix<Result, Dynamic, Dynamic, Order> denseSparse = denseLhs + rhs;
+    const Matrix<Result, Dynamic, Dynamic, Order> sparseDense = lhs + denseRhs;
+    for (Index j = 0; j < 3; ++j)
+      for (Index i = 0; i < 3; ++i) {
+        VERIFY_IS_EQUAL(sparse.coeff(i, j).value, lhs.coeff(i, j).value + rhs.coeff(i, j).value);
+        VERIFY_IS_EQUAL(denseSparse(i, j).value, denseLhs(i, j).value + rhs.coeff(i, j).value);
+        VERIFY_IS_EQUAL(sparseDense(i, j).value, lhs.coeff(i, j).value + denseRhs(i, j).value);
+      }
+    lhs.makeCompressed();
+    rhs.makeCompressed();
+  }
+
+  Matrix<double, 2, 2, Order> real = Matrix<double, 2, 2, Order>::Ones();
+  SparseMatrix<std::complex<double>, Order> complex(2, 2);
+  complex.insert(0, 1) = std::complex<double>(2, 3);
+  const Matrix<std::complex<double>, 2, 2, Order> result = real + complex;
+  for (Index j = 0; j < 2; ++j)
+    for (Index i = 0; i < 2; ++i) VERIFY_IS_EQUAL(result(i, j), std::complex<double>(real(i, j)) + complex.coeff(i, j));
+}
+
+struct SparseNoncommutingScalar {
+  explicit SparseNoncommutingScalar(int diagonal = 0) : values{{diagonal, 0, 0, diagonal}} {}
+  SparseNoncommutingScalar& operator=(int diagonal) {
+    values = {{diagonal, 0, 0, diagonal}};
+    return *this;
+  }
+  std::array<int, 4> values;
+};
+
+double abs(const SparseNoncommutingScalar& scalar) {
+  double result = 0;
+  for (int value : scalar.values) result += numext::abs(value);
+  return result;
+}
+
+namespace Eigen {
+template <>
+struct NumTraits<SparseNoncommutingScalar> : GenericNumTraits<SparseNoncommutingScalar> {
+  using Real = double;
+  static constexpr bool IsSigned = true;
+  static constexpr bool RequireInitialization = true;
+};
+}  // namespace Eigen
+
+SparseNoncommutingScalar operator*(const SparseNoncommutingScalar& lhs, const SparseNoncommutingScalar& rhs) {
+  SparseNoncommutingScalar result;
+  for (int i = 0; i < 2; ++i)
+    for (int j = 0; j < 2; ++j)
+      for (int k = 0; k < 2; ++k) result.values[2 * i + j] += lhs.values[2 * i + k] * rhs.values[2 * k + j];
+  return result;
+}
+
+template <int Order>
+void test_sparse_diagonal_products() {
+  using DiagonalScalar = SparseCwiseScalar<0>;
+  using MatrixScalar = SparseCwiseScalar<1>;
+  using Scalar = SparseNoncommutingScalar;
+  DiagonalMatrix<DiagonalScalar, 3> diagonal;
+  DiagonalMatrix<Scalar, 3> blockDiagonal;
+  for (Index i = 0; i < 3; ++i) {
+    diagonal.diagonal()(i) = DiagonalScalar(int(i) + 2);
+    blockDiagonal.diagonal()(i).values = {{1, 0, int(i) + 2, 1}};
+  }
+  SparseMatrix<MatrixScalar, Order> matrix(3, 3);
+  SparseMatrix<Scalar, Order> blocks(3, 3);
+  matrix.reserve(VectorXi::Constant(3, 3));
+  blocks.reserve(VectorXi::Constant(3, 3));
+  matrix.insert(0, 1) = MatrixScalar(5);
+  matrix.insert(2, 0) = MatrixScalar(-2);
+  blocks.insert(0, 1).values = {{1, 2, 0, 1}};
+  blocks.insert(2, 0).values = {{2, 1, 0, 1}};
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    const SparseMatrix<SparseCwiseScalar<2>, Order> left = diagonal * matrix;
+    const SparseMatrix<SparseCwiseScalar<3>, Order> right = matrix * diagonal;
+    const SparseMatrix<Scalar, Order> blockLeft = blockDiagonal * blocks;
+    const SparseMatrix<Scalar, Order> blockRight = blocks * blockDiagonal;
+    VERIFY_IS_EQUAL(left.nonZeros(), matrix.nonZeros());
+    VERIFY_IS_EQUAL(right.nonZeros(), matrix.nonZeros());
+    for (Index j = 0; j < 3; ++j)
+      for (Index i = 0; i < 3; ++i) {
+        VERIFY_IS_EQUAL(left.coeff(i, j).value, diagonal.diagonal()(i).value * matrix.coeff(i, j).value);
+        VERIFY_IS_EQUAL(right.coeff(i, j).value, matrix.coeff(i, j).value * diagonal.diagonal()(j).value);
+        const Scalar expectedLeft = blockDiagonal.diagonal()(i) * blocks.coeff(i, j);
+        const Scalar expectedRight = blocks.coeff(i, j) * blockDiagonal.diagonal()(j);
+        VERIFY(blockLeft.coeff(i, j).values == expectedLeft.values);
+        VERIFY(blockRight.coeff(i, j).values == expectedRight.values);
+      }
+    matrix.makeCompressed();
+    blocks.makeCompressed();
+  }
+}
+
+SparseNoncommutingScalar& operator+=(SparseNoncommutingScalar& lhs, const SparseNoncommutingScalar& rhs) {
+  for (int i = 0; i < 4; ++i) lhs.values[i] += rhs.values[i];
+  return lhs;
+}
+
+template <int LOrder, int ROrder, int DOrder>
+void test_sparse_product_operand_order() {
+  using Scalar = SparseNoncommutingScalar;
+  SparseMatrix<Scalar, LOrder> lhs(2, 3);
+  SparseMatrix<Scalar, ROrder> rhs(3, 2);
+  lhs.reserve(VectorXi::Constant(lhs.outerSize(), 3));
+  rhs.reserve(VectorXi::Constant(rhs.outerSize(), 3));
+  lhs.insert(0, 0).values = {{1, 2, 0, 1}};
+  lhs.insert(0, 2).values = {{2, 1, 0, 1}};
+  lhs.insert(1, 1).values = {{1, -1, 1, 1}};
+  rhs.insert(0, 1).values = {{1, 0, 3, 1}};
+  rhs.insert(2, 1).values = {{2, 0, 1, 1}};
+  rhs.insert(1, 0).values = {{1, 1, 2, 1}};
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    const SparseMatrix<Scalar, DOrder> sparse = lhs * rhs;
+    const Matrix<Scalar, Dynamic, Dynamic, DOrder> dense = lhs * rhs;
+    VERIFY(sparse.innerIndicesAreSorted());
+    VERIFY_IS_EQUAL(sparse.nonZeros(), 2);
+    for (Index j = 0; j < 2; ++j)
+      for (Index i = 0; i < 2; ++i) {
+        Scalar expected;
+        for (Index k = 0; k < 3; ++k) expected += lhs.coeff(i, k) * rhs.coeff(k, j);
+        VERIFY(sparse.coeff(i, j).values == expected.values);
+        VERIFY(dense(i, j).values == expected.values);
+      }
+    lhs.makeCompressed();
+    rhs.makeCompressed();
+  }
+}
+
+template <int LOrder, int ROrder, int DOrder>
+void test_sparse_pruned_operand_order() {
+  using Scalar = SparseNoncommutingScalar;
+  SparseMatrix<Scalar, LOrder> lhs(2, 3);
+  SparseMatrix<Scalar, ROrder> rhs(3, 2);
+  lhs.reserve(VectorXi::Constant(lhs.outerSize(), 3));
+  rhs.reserve(VectorXi::Constant(rhs.outerSize(), 3));
+  lhs.insert(0, 0).values = {{1, 2, 0, 1}};
+  lhs.insert(0, 2).values = {{2, 1, 0, 1}};
+  rhs.insert(0, 1).values = {{1, 0, 3, 1}};
+  rhs.insert(2, 1).values = {{2, 0, 1, 1}};
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    SparseMatrix<Scalar, DOrder> result(2, 2);
+    internal::sparse_sparse_product_with_pruning_selector<decltype(lhs), decltype(rhs), decltype(result)>::run(
+        lhs, rhs, result, 0.0);
+    const SparseMatrix<Scalar, DOrder> publicResult = (lhs * rhs).pruned(Scalar(0), 0.0);
+    VERIFY(result.innerIndicesAreSorted());
+    VERIFY_IS_EQUAL(result.nonZeros(), 1);
+    for (Index j = 0; j < 2; ++j)
+      for (Index i = 0; i < 2; ++i) {
+        Scalar expected;
+        for (Index k = 0; k < 3; ++k) expected += lhs.coeff(i, k) * rhs.coeff(k, j);
+        VERIFY(result.coeff(i, j).values == expected.values);
+        VERIFY(publicResult.coeff(i, j).values == expected.values);
+      }
+    lhs.makeCompressed();
+    rhs.makeCompressed();
+  }
+}
+
+template <typename = void>
+void test_sparse_outer_operand_types() {
+  SparseVector<SparseCwiseScalar<0>> column(2);
+  column.insert(1) = SparseCwiseScalar<0>(3);
+  Matrix<SparseCwiseScalar<1>, 1, Dynamic> row(3);
+  for (Index i = 0; i < row.size(); ++i) row(i) = SparseCwiseScalar<1>(int(i + 2));
+  using LeftEval = internal::sparse_dense_outer_product_evaluator<decltype(column), decltype(row), false>;
+  const LeftEval left(column, row);
+  for (Index j = 0; j < row.size(); ++j) {
+    typename LeftEval::InnerIterator it(left, j);
+    VERIFY(it);
+    VERIFY_IS_EQUAL(it.row(), 1);
+    VERIFY_IS_EQUAL(it.value().value, 3 * row(j).value);
+    ++it;
+    VERIFY(!it);
+  }
+
+  SparseVector<SparseCwiseScalar<1>, RowMajor> sparseRow(3);
+  sparseRow.insert(2) = SparseCwiseScalar<1>(5);
+  Matrix<SparseCwiseScalar<0>, Dynamic, 1> denseColumn(2);
+  denseColumn(0) = SparseCwiseScalar<0>(2);
+  denseColumn(1) = SparseCwiseScalar<0>(4);
+  using RightEval = internal::sparse_dense_outer_product_evaluator<decltype(denseColumn), decltype(sparseRow), true>;
+  const RightEval right(denseColumn, sparseRow);
+  for (Index i = 0; i < denseColumn.size(); ++i) {
+    typename RightEval::InnerIterator it(right, i);
+    VERIFY(it);
+    VERIFY_IS_EQUAL(it.col(), 2);
+    VERIFY_IS_EQUAL(it.value().value, denseColumn(i).value * 5);
+  }
+}
+
+template <int Order>
+void test_sparse_quaternion_product_order() {
+  using Scalar = noncommutative_scalar::Quaternion;
+  const Scalar i(0, 1, 0, 0), j(0, 0, 1, 0), k(0, 0, 0, 1);
+  SparseMatrix<Scalar, Order> lhs(1, 1), rhs(1, 1), pruned(1, 1);
+  lhs.insert(0, 0) = i;
+  rhs.insert(0, 0) = j;
+  DiagonalMatrix<Scalar, 1> diagonal;
+  diagonal.diagonal()(0) = j;
+  Matrix<Scalar, 1, 1> dense;
+  SparseVector<Scalar, RowMajor> row(1);
+  row.insert(0) = j;
+  dense(0) = i;
+  using Outer = internal::sparse_dense_outer_product_evaluator<decltype(dense), decltype(row), true>;
+  const Outer outer(dense, row);
+  VERIFY(typename Outer::InnerIterator(outer, 0).value() == k);
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    const SparseMatrix<Scalar, Order> left = diagonal * lhs, right = lhs * diagonal, product = lhs * rhs;
+    const Matrix<Scalar, 1, 1, Order> denseProduct = lhs * rhs;
+    VERIFY(left.coeff(0, 0) == -k);
+    VERIFY(right.coeff(0, 0) == k);
+    VERIFY(product.coeff(0, 0) == k);
+    VERIFY(denseProduct(0) == k);
+    internal::sparse_sparse_product_with_pruning_selector<decltype(lhs), decltype(rhs), decltype(pruned)>::run(
+        lhs, rhs, pruned, 0.0);
+    VERIFY(pruned.coeff(0, 0) == k);
+    lhs.makeCompressed();
+    rhs.makeCompressed();
+  }
+}
+
+template <int Order>
+void test_dense_sparse_quaternion_order() {
+  using Scalar = noncommutative_scalar::Quaternion;
+  const Scalar i(0, 1, 0, 0), j(0, 0, 1, 0);
+  Matrix<Scalar, Dynamic, Dynamic, Order> dense = Matrix<Scalar, Dynamic, Dynamic, Order>::Constant(3, 3, i);
+  Matrix<Scalar, 1, Dynamic> row = Matrix<Scalar, 1, Dynamic>::Constant(3, i);
+  SparseMatrix<Scalar, Order> sparse(3, 3);
+  sparse.reserve(VectorXi::Constant(sparse.outerSize(), 3));
+  sparse.insert(0, 0) = j;
+  sparse.insert(1, 2) = j;
+  for (int compressed = 0; compressed < 2; ++compressed) {
+    const Matrix<Scalar, Dynamic, Dynamic> product = dense * sparse;
+    Matrix<Scalar, Dynamic, Dynamic> scaled = Matrix<Scalar, Dynamic, Dynamic>::Zero(3, 3);
+    scaled.noalias() += j * (dense * sparse);
+    Matrix<Scalar, Dynamic, Dynamic> sparseLeft = Matrix<Scalar, Dynamic, Dynamic>::Zero(3, 3);
+    sparseLeft.noalias() += i * (sparse * dense);
+    const Matrix<Scalar, 1, Dynamic> rowSparse = row * sparse;
+    const SparseMatrix<Scalar, Order> cwise = dense.cwiseProduct(sparse);
+    for (Index col = 0; col < sparse.cols(); ++col) {
+      Scalar expectedRow;
+      for (Index k = 0; k < row.size(); ++k) expectedRow += row(k) * sparse.coeff(k, col);
+      VERIFY(rowSparse(col) == expectedRow);
+      for (Index r = 0; r < dense.rows(); ++r) {
+        Scalar expected;
+        for (Index k = 0; k < dense.cols(); ++k) expected += dense(r, k) * sparse.coeff(k, col);
+        VERIFY(product(r, col) == expected);
+        VERIFY(scaled(r, col) == j * expected);
+        Scalar expectedLeft;
+        for (Index k = 0; k < dense.rows(); ++k) expectedLeft += sparse.coeff(r, k) * dense(k, col);
+        VERIFY(sparseLeft(r, col) == i * expectedLeft);
+        VERIFY(cwise.coeff(r, col) == dense(r, col) * sparse.coeff(r, col));
+      }
+    }
+    sparse.makeCompressed();
+  }
+}
+
+template <typename = void>
+void test_sparse_vector_dense_product() {
+  SparseVector<double> sv(3);
+  sv.insert(0) = 1.0;
+  sv.insert(2) = 2.0;
+
+  MatrixXd dm = MatrixXd::Random(3, 2);
+  MatrixXd res = sv.transpose() * dm;
+  MatrixXd ref = MatrixXd(sv).transpose() * dm;
+  VERIFY_IS_APPROX(res, ref);
+}
+
+EIGEN_DECLARE_TEST(sparse_product) {
+  sparse_structured_view_product_sfinae<SparseMatrix<double, ColMajor>>();
+  sparse_structured_view_product_sfinae<SparseMatrix<double, RowMajor>>();
+
+  for (int i = 0; i < g_repeat; i++) {
+    CALL_SUBTEST_1((test_sparse_vector_dense_product<>()));
+    CALL_SUBTEST_1((test_pruned_product_row_vector<>()));
+    CALL_SUBTEST_1((test_sparse_product_mul_assign<>()));
+    CALL_SUBTEST_1((sparse_product<SparseMatrix<double, ColMajor>>()));
+    CALL_SUBTEST_1((sparse_product<SparseMatrix<double, RowMajor>>()));
+    CALL_SUBTEST_1((bug_942<double>()));
+    CALL_SUBTEST_2((sparse_product<SparseMatrix<std::complex<double>, ColMajor>>()));
+    CALL_SUBTEST_2((sparse_product<SparseMatrix<std::complex<double>, RowMajor>>()));
+    CALL_SUBTEST_3((sparse_product<SparseMatrix<float, ColMajor, long int>>()));
+    CALL_SUBTEST_4(
+        (sparse_product_regression_test<SparseMatrix<double, RowMajor>, Matrix<double, Dynamic, Dynamic, RowMajor>>()));
+
+    CALL_SUBTEST_5((test_mixing_types<float>()));
+    CALL_SUBTEST_5((test_mixed_storage<>()));
+    CALL_SUBTEST_5((test_sparse_cwise_product_operand_types<ColMajor>()));
+    CALL_SUBTEST_7((test_sparse_cwise_sum_operand_types<RowMajor>()));
+    CALL_SUBTEST_8((test_sparse_diagonal_products<ColMajor>()));
+    CALL_SUBTEST_8((test_sparse_diagonal_products<RowMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<ColMajor, ColMajor, ColMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<ColMajor, ColMajor, RowMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<ColMajor, RowMajor, ColMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<ColMajor, RowMajor, RowMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<RowMajor, ColMajor, ColMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<RowMajor, ColMajor, RowMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<RowMajor, RowMajor, ColMajor>()));
+    CALL_SUBTEST_9((test_sparse_product_operand_order<RowMajor, RowMajor, RowMajor>()));
+    CALL_SUBTEST_10((test_sparse_outer_operand_types<>()));
+    CALL_SUBTEST_12((test_sparse_quaternion_product_order<ColMajor>()));
+    CALL_SUBTEST_12((test_sparse_quaternion_product_order<RowMajor>()));
+    CALL_SUBTEST_14((test_dense_sparse_quaternion_order<ColMajor>()));
+    CALL_SUBTEST_14((test_dense_sparse_quaternion_order<RowMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<ColMajor, ColMajor, ColMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<ColMajor, ColMajor, RowMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<ColMajor, RowMajor, ColMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<ColMajor, RowMajor, RowMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<RowMajor, ColMajor, ColMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<RowMajor, ColMajor, RowMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<RowMajor, RowMajor, ColMajor>()));
+    CALL_SUBTEST_11((test_sparse_pruned_operand_order<RowMajor, RowMajor, RowMajor>()));
+
+    CALL_SUBTEST_6((test_pruned_product_custom_scalar<>()));
+    CALL_SUBTEST_6((test_ambivector_discard_custom_scalar<>()));
+    CALL_SUBTEST_6((test_ambivector_resize_bounds<>()));
+    CALL_SUBTEST_6((test_ambivector_front_insertion_growth<>()));
+#if defined(EIGEN_EXCEPTIONS)
+    CALL_SUBTEST_6((test_ambivector_failed_insertion<>()));
+    CALL_SUBTEST_6((test_ambivector_failed_reallocation<>()));
+    CALL_SUBTEST_6((test_ambivector_front_insertion_relocates<>()));
+#endif
+  }
+}

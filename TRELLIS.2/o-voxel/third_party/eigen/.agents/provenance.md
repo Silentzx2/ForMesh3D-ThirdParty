@@ -1,0 +1,73 @@
+# Provenance Of Information
+
+Use this guide whenever a task involves software that Eigen does not own: comparing Eigen with it, benchmarking
+against it, integrating with it, or looking at how it works. [`AGENTS.md`](../AGENTS.md) rule 2 is the
+contract; [`numerics.md`](numerics.md#provenance) covers citing the literature an implementation is built on.
+
+Eigen aims to be the best library it can be, in speed, accuracy and everything else. It pursues that aim by legal and
+ethical means, from original research and publicly available information, and by no other means. Copyright protects
+expression, not ideas, so the concern here is how an idea was obtained. Looking inside a vendor's software can breach
+its license, and using what was learned can support a trade-secret claim even when nothing is copied. Eigen treats
+code informed that way as tainted.
+
+## Original Research Is Encouraged
+
+Measure the hardware with your own microbenchmarks, measure other libraries from outside, run numerical experiments,
+design new algorithms, and derive new bounds. The rest of this guide limits how you learn about software Eigen does not
+own, not what you discover yourself. There is one condition: you must have the right to contribute the result under
+Eigen's license. That means no NDA or other confidentiality terms bind it, and whoever owns the work, often an
+employer, has agreed.
+
+## Proprietary Software Is A Black Box
+
+Use proprietary libraries, such as Intel oneMKL, NVIDIA's cuBLAS, Arm Performance Libraries, and Apple Accelerate,
+only through their documented interface, and measure them as shipped. Eigen holds to this black-box rule regardless of
+what a particular license or jurisdiction permits. The rule also does not change when someone else has already published
+what is inside: the vendor's documentation defines the supported interface, not a forum post. If a comparison cannot be
+configured through documented means, report the limitation.
+
+| Allowed: observe from outside | Not allowed: look inside |
+|---|---|
+| Link against the library, call its documented API, time it, compare its numerical results | Disassemble or decompile it (`objdump -d`, `otool -tv`, `cuobjdump`, Ghidra, IDA, radare2) |
+| Read its published documentation, headers, release notes, application notes, and the vendor's papers and talks | Dump its strings or bytes (`strings`, `xxd`, `grep -a`) to find undocumented switches, kernel names, or dispatch tables |
+| Set documented environment variables and verbose modes | Step a debugger through it, or `perf annotate` its code |
+| Run it as shipped, configured only through its documented interface | Change how it runs by other means: override or interpose its symbols, patch it, or set switches its vendor does not document |
+| Diagnose linking: `ldd`, `nm -D`, `otool -L`, `readelf -d`, `objdump -p` | Read confidential source or information: leaked, under NDA, or from a current or former employer |
+| Profile at function granularity to see how much time is spent in the library as a whole | Use third-party write-ups you know or have reason to believe obtained their content by any of the above |
+
+The left column is the most Eigen allows; it does not mean a vendor's terms allow it. A vendor's terms can forbid more,
+for example by granting use only for internal evaluation, by treating the software and information about it as
+confidential, or by restricting published benchmark results. Those terms bind whoever accepted them; read them before
+publishing measurements.
+
+A proprietary library linked statically into one of Eigen's own benchmark binaries is still a black box: disassemble
+and annotate only Eigen's symbols. When the compiler inlines code from a vendor's headers or device libraries into
+Eigen's own functions, those functions stay open to inspection. Analyze Eigen's code in them, not the inlined vendor
+code.
+
+## Open-Source Software
+
+Software published under an open-source license, such as OpenBLAS, BLIS, and reference LAPACK, may be read and
+disassembled. Two cautions:
+
+- Public is not the same as compatible. Reading GPL or LGPL code is allowed, but copying, paraphrasing, or translating it
+  into Eigen is not; see rule 2 and [`CONTRIBUTING.md`](../CONTRIBUTING.md#provenance-and-attribution).
+- A binary that a vendor ships under its own license is still a black box, even when the vendor also publishes its
+  source. To look inside, read or build the published source.
+
+## Show Where The Change Comes From
+
+A merge request description should link the publicly available documentation that supports the change: the ISA or
+architecture manual, the vendor's optimization guide or intrinsics reference, the paper or standard an algorithm
+follows, the documented API a backend relies on. Where the change rests on original research, include the evidence
+instead: the reproducer, the method and results of a measurement, or the derivation. These links matter most for
+hardware-specific optimizations and new features. They let a reviewer check the change against its sources and confirm
+that everything the change relies on is public or published with it.
+
+## If You Are Exposed Anyway
+
+Stop, do not act on what you saw, and tell the user what was seen and how. Do not record it in code, comments, commit
+messages, merge request descriptions, benchmark write-ups, or agent memory. If it has already been committed, pushed,
+or published, say exactly where. The maintainers decide how far back to remove it and whether the affected work needs
+a different author or a fresh start. If a vendor has raised the matter, preserve everything and get legal advice
+before removing anything.

@@ -1,0 +1,332 @@
+# <small>nlohmann::basic_json::</small>parse
+
+```cpp
+// (1)
+template<typename InputType>
+static basic_json parse(InputType&& i,
+                        const parser_callback_t cb = nullptr,
+                        const bool allow_exceptions = true,
+                        const bool ignore_comments = false,
+                        const bool ignore_trailing_commas = false);
+
+// (2)
+template<typename IteratorType, typename SentinelType = IteratorType>
+static basic_json parse(IteratorType first, SentinelType last,
+                        const parser_callback_t cb = nullptr,
+                        const bool allow_exceptions = true,
+                        const bool ignore_comments = false,
+                        const bool ignore_trailing_commas = false);
+```
+
+1. Deserialize from a compatible input.
+2. Deserialize from a pair of character iterators, or an iterator and a sentinel of a different type (C++20 ranges support)
+    
+    The `value_type` of the iterator must be an integral type with size of 1, 2, or 4 bytes, which will be interpreted
+    respectively as UTF-8, UTF-16, and UTF-32. If `SentinelType` differs from `IteratorType`, it must be comparable to
+    the iterator type with `operator!=`.
+
+    Ill-formed UTF-16 and UTF-32 sequences are rejected: a lone surrogate, a high surrogate that is not followed by its
+    low surrogate, and a code point above `U+10FFFF` all yield a
+    [`parse_error.101`](../../home/exceptions.md#jsonexceptionparse_error101).
+
+## Template parameters
+
+`InputType`
+:   A compatible input, for instance:
+    
+    - an `std::istream` object
+    - a `FILE` pointer (throws if null)
+    - a C-style array of characters
+    - a pointer to a null-terminated string of single byte characters (throws if null)
+    - a `std::string` or a `std::string_view` (C++17)
+    - a container `obj` for which `begin(obj)` and `end(obj)` produce a valid pair of iterators
+      (as found via ADL or member functions, with semantics compatible to `std::begin` and `std::end`)
+    - wide characters (`wchar_t`, `char16_t`, `char32_t`), which are converted to UTF-8: a wide string object
+      (`std::wstring`, `std::u16string`, `std::u32string`) or an array (e.g. a wide string literal); a pointer to a
+      null-terminated wide string (e.g. `std::u16string::c_str()`) is not supported
+
+`IteratorType`
+:   a compatible iterator type, for instance.
+
+    - a pair of `std::string::iterator` or `std::vector<std::uint8_t>::iterator`
+    - a pair of pointers such as `ptr` and `ptr + len`
+
+`SentinelType`
+:   defaults to `IteratorType`; may be a different type comparable to `IteratorType` via `operator!=`, for instance.
+
+    - a custom sentinel type for C++20 ranges
+    - `std::default_sentinel_t`, when `IteratorType` is `std::counted_iterator`
+
+## Parameters
+
+`i` (in)
+:   Input to parse from.
+
+`cb` (in)
+:   a parser callback function of type [`parser_callback_t`](parser_callback_t.md) which is used to control the
+    deserialization by filtering unwanted values (optional)
+
+`allow_exceptions` (in)
+:    whether to throw exceptions in case of a parse error (optional, `#!cpp true` by default)
+
+`ignore_comments` (in)
+:   whether comments should be ignored and treated like whitespace (`#!cpp true`) or yield a parse error
+    (`#!cpp false`); (optional, `#!cpp false` by default)
+
+`ignore_trailing_commas` (in)
+:   whether trailing commas in arrays or objects should be ignored and treated like whitespace (`#!cpp true`) or yield a parse error
+    (`#!cpp false`); (optional, `#!cpp false` by default)
+
+`first` (in)
+:   iterator to the start of a character range
+
+`last` (in)
+:   iterator to the end of a character range, or a sentinel value that compares equal to the end iterator with `operator!=`
+
+## Return value
+
+Deserialized JSON value; in case of a parse error and `allow_exceptions` set to `#!cpp false`, the return value will be
+`value_t::discarded`. The latter can be checked with [`is_discarded`](is_discarded.md).
+
+## Exception safety
+
+Strong guarantee: if an exception is thrown, there are no changes in the JSON value.
+
+## Exceptions
+
+- Throws [`parse_error.101`](../../home/exceptions.md#jsonexceptionparse_error101) in case of an unexpected token, or
+  empty input like a null `FILE*` or `char*` pointer, or an `std::istream` without a stream buffer
+  (`#!cpp i.rdbuf() == nullptr`, for instance `#!cpp std::istream(nullptr)`).
+- If reading from an `std::istream` reaches the end of the input and `eofbit` is part of the stream's
+  [`exceptions()`](https://en.cppreference.com/w/cpp/io/basic_ios/exceptions) mask, the `std::ios_base::failure`
+  thrown by the stream itself propagates instead of a `parse_error`, the same as it would for the standard library's
+  own extraction operators.
+
+## Complexity
+
+Linear in the length of the input. The parser is a predictive LL(1) parser. The complexity can be higher if the parser
+callback function `cb` or reading from (1) the input `i` or (2) the iterator range [`first`, `last`] has a
+super-linear complexity.
+
+## Notes
+
+A UTF-8 byte order mark is silently ignored.
+
+Invalid Unicode escapes and unpaired surrogates in the input are reported as
+[`parse_error.101`](../../home/exceptions.md#jsonexceptionparse_error101) with a detailed message.
+
+By default, a `'\0'` (NUL) byte anywhere in the input is treated as end of input, rather than as an ordinary (and,
+outside of a string, invalid) byte; see the [FAQ entry](../../home/faq.md#nul-bytes-in-the-input) for details and the
+[`JSON_STRICT_NUL_HANDLING`](../macros/json_strict_nul_handling.md) macro to opt into rejecting it instead.
+
+!!! tip "Parsing into a document instead of a value"
+
+    [`basic_json_document::parse`](../basic_json_document/parse.md) accepts the same inputs and the same options, but
+    keeps the result as a flat index of the parsed values instead of a tree of `basic_json` values. It is faster and uses
+    less memory when only parts of the document are read, and it also accepts a pointer to a null-terminated wide string,
+    which `parse()` does not. See [Zero-copy JSON views](../../features/json_view.md).
+
+!!! tip "Performance"
+
+    Contiguous inputs (strings, string views, vectors, arrays, pointer ranges) are the fastest to parse. A
+    `#!cpp std::istream` comes close: the parser scans the characters its stream buffer holds in bulk, without reading
+    ahead, so the stream is left exactly where it would be after reading one character at a time. A `#!cpp FILE*` is
+    read one character at a time, but the file is locked only once, so other threads that use the same `FILE` object
+    wait until parsing is done. See [input sources and performance](../../features/parsing/index.md#input-sources-and-performance),
+    [`JSON_DISABLE_STREAM_BULK_SCAN`](../macros/json_disable_stream_bulk_scan.md), and
+    [`JSON_DISABLE_UNLOCKED_FILE_IO`](../macros/json_disable_unlocked_file_io.md).
+
+## Examples
+
+??? example "Example: (1) parse from a character array"
+
+    The example below demonstrates the `parse()` function reading from an array.
+
+    ```cpp
+    --8<-- "examples/parse__array__parser_callback_t.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__array__parser_callback_t.output"
+    ```
+
+??? example "Example: (1) parse from a string"
+
+    The example below demonstrates the `parse()` function with and without callback function.
+
+    ```cpp
+    --8<-- "examples/parse__string__parser_callback_t.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__string__parser_callback_t.output"
+    ```
+
+??? example "Example: (1) parse from an input stream"
+
+    The example below demonstrates the `parse()` function with and without callback function.
+
+    ```cpp
+    --8<-- "examples/parse__istream__parser_callback_t.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__istream__parser_callback_t.output"
+    ```
+
+??? example "Example: (1) parse from a contiguous container"
+
+    The example below demonstrates the `parse()` function reading from a contiguous container.
+
+    ```cpp
+    --8<-- "examples/parse__contiguouscontainer__parser_callback_t.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__contiguouscontainer__parser_callback_t.output"
+    ```
+
+??? example "Example: (2) parse from a non-null-terminated string"
+
+    The example below demonstrates the `parse()` function reading from a string that is not null-terminated.
+
+    ```cpp
+    --8<-- "examples/parse__pointers.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__pointers.output"
+    ```
+
+??? example "Example: (2) parse from an iterator pair"
+
+    The example below demonstrates the `parse()` function reading from an iterator pair.
+
+    ```cpp
+    --8<-- "examples/parse__iterator_pair.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__iterator_pair.output"
+    ```
+
+??? example "Example: effect of `allow_exceptions` parameter"
+
+    The example below demonstrates the effect of the `allow_exceptions` parameter in the `parse()` function.
+
+    ```cpp
+    --8<-- "examples/parse__allow_exceptions.cpp"
+    ```
+    
+    Output:
+    
+    ```json
+    --8<-- "examples/parse__allow_exceptions.output"
+    ```
+
+??? example "Example: effect of `ignore_comments` parameter"
+
+    The example below demonstrates the effect of the `ignore_comments` parameter in the `parse()` function.
+
+    ```cpp
+    --8<-- "examples/comments.cpp"
+    ```
+
+    Output:
+
+    ```
+    --8<-- "examples/comments.output"
+    ```
+
+??? example "Example: effect of `ignore_trailing_commas` parameter"
+
+    The example below demonstrates the effect of the `ignore_trailing_commas` parameter in the `parse()` function.
+
+    ```cpp
+    --8<-- "examples/trailing_commas.cpp"
+    ```
+
+    Output:
+
+    ```
+    --8<-- "examples/trailing_commas.output"
+    ```
+
+??? example "Example: parse from UTF-16, UTF-32, and wide strings"
+
+    The encoding is deduced from the character type of the input; `std::u16string` and `std::u32string` are interpreted
+    as UTF-16 and UTF-32, and `std::wstring` uses the platform's `wchar_t` width. String literals like `u"..."`,
+    `U"..."`, and `L"..."` work as well, as do iterators over wide characters.
+
+    ```cpp
+    --8<-- "examples/parse__wide_string.cpp"
+    ```
+
+    Output:
+
+    ```json
+    --8<-- "examples/parse__wide_string.output"
+    ```
+
+## See also
+
+- [`accept`](accept.md) - check if the input is valid JSON
+- [`sax_parse`](sax_parse.md) - parse input using the SAX interface
+- [`operator>>`](../operator_gtgt.md) - deserialize from stream
+- [`JSON_STRICT_NUL_HANDLING`](../macros/json_strict_nul_handling.md) - opt in to rejecting a NUL byte in the input
+  instead of treating it as end of input
+- [`JSON_DISABLE_STREAM_BULK_SCAN`](../macros/json_disable_stream_bulk_scan.md) - read a `std::istream` one character
+  at a time
+- [`JSON_DISABLE_UNLOCKED_FILE_IO`](../macros/json_disable_unlocked_file_io.md) - read a `FILE*` with the locking stdio
+  functions
+- [Parsing](../../features/parsing/index.md) - overview of the parsing functions
+- [Comments](../../features/comments.md) - ignore `//` and `/* */` comments while parsing
+- [Trailing Commas](../../features/trailing_commas.md) - accept trailing commas in arrays and objects
+- [Parser Callbacks](../../features/parsing/parser_callbacks.md) - filter or inspect values while parsing
+- [Parsing and Exceptions](../../features/parsing/parse_exceptions.md) - handling parse errors and locating them in the input
+- [Parsing Untrusted Input](../../features/parsing/untrusted_input.md) - limits and checks for input you do not control
+
+## Version history
+
+- Added in version 1.0.0.
+- Overload for contiguous containers (1) added in version 2.0.3.
+- Ignoring comments via `ignore_comments` added in version 3.9.0.
+- Changed [runtime assertion](../../features/assertions.md) in case of `FILE*` null pointers to exception in version 3.12.0.
+- Added `ignore_trailing_commas` in version 3.13.0.
+- Extended container support (1) to include types with lvalue-only ADL `begin`/`end` (matching `std::begin`/`std::end` semantics) in version 3.13.0.
+- Extended overload (2) to accept heterogeneous iterator+sentinel pairs (C++20 ranges support) in version 3.13.0.
+- `JSON_STRICT_NUL_HANDLING` added in version 3.13.0 to optionally reject a NUL byte in the input instead of treating
+  it as end of input; planned to become the default in version 4.0.0.
+- Extended empty-input detection to also cover an `std::istream` without a stream buffer, and fixed a crash
+  (`std::terminate`) when parsing from an `std::istream` with `eofbit` in its exception mask, in version 3.13.0.
+- Parsing from an `std::istream` scans the characters in its stream buffer in bulk in version 3.13.0
+  ([`JSON_DISABLE_STREAM_BULK_SCAN`](../macros/json_disable_stream_bulk_scan.md) restores reading one character at a
+  time).
+- Parsing from a `FILE*` locks the file once instead of once per character in version 3.13.0
+  ([`JSON_DISABLE_UNLOCKED_FILE_IO`](../macros/json_disable_unlocked_file_io.md) restores `std::fgetc`).
+- Ill-formed UTF-16 and UTF-32 input (a lone surrogate, a high surrogate that is not followed by its low surrogate, or
+  a code point above `U+10FFFF`) is rejected with `parse_error.101` in version 3.13.0; before that, some such
+  sequences were accepted or ended the input silently.
+
+!!! warning "Deprecation"
+
+    Overload (2) replaces calls to `parse` with a pair of iterators as their first parameter which has been
+    deprecated in version 3.8.0. This overload will be removed in version 4.0.0. Please replace all calls like
+    `#!cpp parse({ptr, ptr+len}, ...);` with `#!cpp parse(ptr, ptr+len, ...);`.
+
+    You should be warned by your compiler with a `-Wdeprecated-declarations` warning if you are using a deprecated
+    function.
+
+    See the [migration guide](../../integration/migration_guide.md#parsing) for how to update existing code.

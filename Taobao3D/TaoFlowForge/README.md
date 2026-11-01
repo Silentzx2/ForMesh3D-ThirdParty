@@ -1,0 +1,217 @@
+<p align="center">
+  <strong>TaoFlowForge: Progressive Native Mesh Generation via Cascaded Flow Matching</strong>
+</p>
+
+<p align="center">
+  <a href="https://arxiv.org/pdf/2609.37139"><img src="https://img.shields.io/badge/📄_Paper-arXiv:2507.16290-b31b1b?style=flat-square" alt="Paper"></a>
+  <a href="https://alibaba.github.io/Taobao3D/blog/taoflowforge/"><img src="https://img.shields.io/badge/🌐_Project-Page-1a73e8?style=flat-square" alt="Project Page"></a>
+</p>
+
+<p align="center">
+  <img src="assets/teaser.png" alt="TaoFlowForge teaser" width="100%">
+</p>
+
+## Introduction
+
+TaoFlowForge is a model for image-conditioned, production-ready native mesh generation. Instead of representing 3D shapes through an intermediate format, it progressively generates mesh vertices and predicts their connectivity to produce lightweight, editable, and topologically clean triangle meshes.
+
+The method uses a fixed three-stage pipeline:
+
+1. **Stage 0: Coarse occupancy generation.** The input image is converted into occupied cells on a `64³` grid.
+2. **Stage 1: Fine vertex generation.** A Level-MoE model progressively refines the coarse structure into vertices on a `512³` lattice.
+3. **Stage 2: Topology generation.** The model predicts connectivity affinities and decodes triangle faces; mesh post-processing repairs holes and face orientations.
+
+TaoFlowForge achieves state-of-the-art results among open-source mesh topology generators under image-conditioned generation. See the full paper: [TaoFlowForge: Progressive Native Mesh Generation via Cascaded Flow Matching](https://arxiv.org/pdf/2609.37139).
+
+This repository provides the inference pipeline, command-line interface, Python API, and Gradio demo.
+
+## Requirements and Installation
+
+The code is tested with:
+
+- Python 3.10
+- PyTorch 2.5.1
+- CUDA 12.1
+
+Create an environment and install the pinned dependencies:
+
+```bash
+conda create -n taoflowforge python=3.10 -y
+conda activate taoflowforge
+pip install -r requirements.txt
+```
+
+Some CUDA packages depend on the local GPU architecture and CUDA runtime. If a pinned binary wheel is incompatible with your system, install the corresponding build for your PyTorch/CUDA environment.
+
+## Checkpoints
+
+Prepare the five released checkpoint files. Paths may be changed freely as long as the matching CLI arguments are provided.
+
+Please download the checkpoint from [modelscope](https://www.modelscope.cn/models/Taobao3D/TaoFlowForge/files)
+
+```text
+weights/
+├── stage0.pt
+├── stage1.pt
+└── stage2.pt
+```
+
+Checkpoint loading is strict: model keys, tensor shapes, and release architecture metadata must match the expected configuration.
+
+## Full Pipeline Inference
+
+Run the complete image-to-mesh pipeline with:
+
+```bash
+python -m taoflowforge.cli run \
+  --image path/to/input.png \
+  --stage0-checkpoint weights/stage0.pt \
+  --stage1-checkpoint weights/stage1.pt \
+  --stage2-checkpoint weights/stage2.pt \
+  --output-dir output/example \
+  --seed 42
+```
+
+If the stage checkpoints do not embed DINOv3 weights, supply a HuggingFace pretrained directory with `--dino-checkpoint path/to/dinov3-large`.
+
+### Optional Background Removal
+
+Download the optional background-removal model from the official [BRIA RMBG-2.0 repository on Hugging Face](https://huggingface.co/briaai/RMBG-2.0). This model is distributed separately from the TaoFlowForge stage checkpoints. Sign in to Hugging Face and complete the model's access form and accept its terms before downloading gated files.
+
+With the Hugging Face CLI installed, authenticate using `hf auth login`, then download the model repository to a local directory:
+
+```bash
+hf download briaai/RMBG-2.0 --local-dir weights/RMBG-2.0
+```
+
+Keep the model configuration, weights, and custom Python code together in that directory; downloading only a `.safetensors` or `.bin` file is not sufficient. TaoFlowForge loads RMBG from local files only and does not automatically download it during inference.
+
+Add `--rembg-model weights/RMBG-2.0` to a Gradio launch, the full-pipeline CLI command, or any stage-wise CLI command to enable the same RMBG-2.0 / BiRefNet preprocessing used on the `master` branch. The alias `--rembg_model` is also accepted. In the Python API, set `rembg_model=Path("weights/RMBG-2.0")` in `InferenceConfig`. Replace `weights/RMBG-2.0` with your actual model directory if stored elsewhere, not an individual checkpoint file. Only use trusted model directories: loading uses `trust_remote_code=True` to execute the model's custom Python code.
+
+**License notice:** RMBG-2.0 has its own license, separate from TaoFlowForge. The model card specifies [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/deed.en) for non-commercial use; commercial use requires a separate agreement with BRIA. Review the current license and access terms on the official model page before downloading, using, or redistributing the model.
+
+The model runs in float32 with a 1024×1024, ImageNet-normalized input. Existing transparency is first composited onto white; the predicted soft foreground mask then replaces the background with white before the usual square padding and resize. The full pipeline processes the image once and shares the result across all three stages; `input.png` records this processed input. Use the same image and RMBG settings when running stages independently or resuming.
+
+**WARNING:** If no RMBG directory is provided, background removal is disabled. A visible warning is printed and existing image preprocessing remains unchanged; real image backgrounds are retained. An invalid supplied model directory or a loading/inference error raises an error instead of silently disabling background removal.
+
+The optional model may require additional dependencies such as `timm`; install the dependencies documented by your RMBG-2.0 model release. The Python `rembg` package and ONNX Runtime are not used. With stage offloading enabled, the remover stays on CPU, matching `master`; a performance warning is printed. With `--offload off`, it uses the selected inference device.
+
+By default, models are moved on and off the GPU stage by stage to reduce peak memory usage. Use `--offload off` to keep available modules resident, or `--no-fill-holes` to preserve the raw Stage 2 topology without hole filling and normal repair.
+
+The output directory contains:
+
+```text
+output/example/
+├── input.png
+├── stage0.npz
+├── stage1.npz
+├── stage2.npz
+├── mesh_raw.obj
+├── mesh.obj
+├── mesh.glb
+└── metadata.json
+```
+
+`mesh_raw.obj` is the direct Stage 2 prediction, `mesh.obj` is the repaired final mesh, and `mesh.glb` is centered and scaled to fit within `[-0.5, 0.5]³` for visualization.
+
+### Stage-wise Inference
+
+Each stage can also be run independently. The intermediate NPZ files preserve NumPy, CPU Torch, and CUDA RNG states.
+
+```bash
+# Stage 0: image -> occupied cells
+python -m taoflowforge.cli stage0 \
+  --image path/to/input.png \
+  --stage0-checkpoint weights/stage0.pt \
+  --output-artifact output/stage0.npz --seed 42
+
+# Stage 1: occupied cells -> vertices
+python -m taoflowforge.cli stage1 \
+  --image path/to/input.png \
+  --stage1-checkpoint weights/stage1.pt \
+  --input-artifact output/stage0.npz \
+  --output-artifact output/stage1.npz
+
+# Stage 2: vertices -> triangle mesh
+python -m taoflowforge.cli stage2 \
+  --image path/to/input.png \
+  --stage2-checkpoint weights/stage2.pt \
+  --input-artifact output/stage1.npz \
+  --output-artifact output/stage2.npz \
+  --output-mesh output/mesh_raw.obj
+```
+
+The full command can resume from a saved artifact with `--resume-from path/to/stage1.npz`. Restoring a CUDA artifact requires the same number of visible CUDA devices used when it was created.
+
+## Python API
+
+```python
+from pathlib import Path
+
+from taoflowforge import InferenceConfig, Stage0Config, Stage1Config, Stage2Config
+from taoflowforge.pipeline import TaoFlowForgePipeline
+
+weights = Path("weights")
+config = InferenceConfig(
+    stage0=Stage0Config(
+        checkpoint=weights / "stage0.pt",
+    ),
+    stage1=Stage1Config(checkpoint=weights / "stage1.pt"),
+    stage2=Stage2Config(checkpoint=weights / "stage2.pt"),
+    # dino_checkpoint=Path("path/to/dinov3-large"),  # if checkpoints lack DINO weights
+    # rembg_model=Path("path/to/RMBG-2.0"),  # optional background removal; warns if omitted
+    seed=42,
+    output_dir=Path("output/example"),
+)
+
+with TaoFlowForgePipeline.from_config(config) as pipeline:
+    result = pipeline.run("examples/bookshelf_desk.png")
+
+print(result.glb_path)
+```
+
+A directly runnable example is available at `examples/minimal_inference.py`.
+
+## Gradio Demo
+
+Launch the interactive web interface with:
+
+```bash
+python gradio_demo.py \
+  --stage0-checkpoint weights/stage0.pt \
+  --stage1-checkpoint weights/stage1.pt \
+  --stage2-checkpoint weights/stage2.pt \
+  --device cuda:0 \
+  --host 0.0.0.0 \
+  --port 7860
+```
+
+The demo runs the complete three-stage pipeline and progressively displays the Stage 0 occupancy point cloud, Stage 1 vertex cloud, and Stage 2 triangle topology. Intermediate files and final results are stored in a temporary directory named `/tmp/taoflowforge-*`. Use `--share` to request a public Gradio link.
+
+Append `--rembg-model path/to/RMBG-2.0` (or `--rembg_model`) to enable background removal. When enabled, uploaded transparency is preserved until compositing onto white. When omitted, the existing Gradio RGB input behavior is retained and a persistent **WARNING** appears on the page as well as in the terminal.
+
+## Acknowledgements
+
+Our work builds upon these excellent repositories:
+
+- [TRELLIS](https://github.com/Microsoft/TRELLIS)
+- [TRELLIS.2](https://github.com/microsoft/TRELLIS.2)
+- [LATO](https://github.com/TianhaoZhao668/LATO)
+- [LATO.2](https://github.com/LoHhhha/LATO.2)
+
+## Citation
+
+If you find TaoFlowForge useful in your research, please cite:
+
+```bibtex
+@misc{fang2026taoflowforge,
+  title         = {TaoFlowForge: Progressive Native Mesh Generation via Cascaded Flow Matching},
+  author        = {Fang, Xianze and Feng, Qiyuan and Sun, Dongfang and Zhang, Yan and Wu, Xiuchao and Gao, Jingnan and Lyu, Jiangjing and Lyu, Chengfei and Yu, Gang},
+  year          = {2026},
+  eprint        = {2609.37139},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CV},
+  doi           = {10.48550/arXiv.2609.37139},
+  url           = {https://arxiv.org/abs/2609.37139}
+}
+```

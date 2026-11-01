@@ -1,0 +1,128 @@
+namespace Eigen {
+
+/** \page TopicAssertions Assertions
+
+\eigenAutoToc
+
+\section PlainAssert Assertions
+
+The macro eigen_assert is defined to be \c eigen_plain_assert by default, and eigen_plain_assert essentially behaves like the standard \c assert. Having %Eigen's own layer instead of using \c assert directly lets %Eigen handle device code (assertions in GPU kernels are disabled unless explicitly enabled) and avoid ODR pitfalls caused by \c __FILE__ expanding differently across translation units; see Eigen/src/Core/util/Assert.h for the details.
+
+\subsection RedefineAssert Redefining assertions
+
+Both eigen_assert and eigen_plain_assert are defined in Macros.h. Defining eigen_assert indirectly gives you a chance to change its behavior. You can redefine this macro if you want to do something else such as throwing an exception, and fall back to its default behavior with eigen_plain_assert. The code below tells Eigen to throw an std::runtime_error:
+
+\code
+#include <stdexcept>
+#undef eigen_assert
+#define eigen_assert(x) \
+  if (!(x)) { throw (std::runtime_error("Put your message here")); }
+\endcode
+
+\subsection DisableAssert Disabling assertions
+
+Assertions cost run time and can be turned off. You can suppress eigen_assert by defining \c EIGEN_NO_DEBUG \b before including Eigen headers. \c EIGEN_NO_DEBUG is undefined by default unless \c NDEBUG is defined.
+
+\section StaticAssert Static assertions
+
+Coefficient-count checks against matrix rows or columns reject provably incompatible fixed dimensions at compile
+time, including in release builds. This applies to diagonal products, factorization workspaces and rank updates.
+Unknown dimensions retain debug runtime checks, also when \c EIGEN_NO_STATIC_ASSERT disables static diagnostics.
+Invalid fixed-size calls that previously compiled and asserted only at runtime can therefore fail to compile.
+
+In the Eigen library, there are many conditions that can and should be detected at compile time. For instance, we use static assertions to prevent the code below from compiling.
+
+\code
+Matrix3d()  + Matrix4d();   // adding matrices of different sizes
+Matrix4cd() * Vector3cd();  // invalid product known at compile time
+\endcode
+
+Static assertions are defined in StaticAssert.h. EIGEN_STATIC_ASSERT(CONDITION,MSG) expands to the native
+<tt>static_assert</tt>:
+
+\code
+#define EIGEN_STATIC_ASSERT(X,MSG) static_assert(X, #MSG);
+\endcode
+
+\c CONDITION must be a compile-time boolean expression. \c MSG is not evaluated: it is stringified into the
+diagnostic, which is why the messages are written ALL_CAPS_AND_THEY_ARE_SHOUTING, as in
+\c YOU_TRIED_CALLING_A_VECTOR_METHOD_ON_A_MATRIX. Use one of the existing messages where it fits; see StaticAssert.h
+for the established names.
+
+Because it expands to a declaration, EIGEN_STATIC_ASSERT can be used wherever a declaration is allowed, including
+class scope — see for instance \c log1p_impl in MathFunctions.h.
+
+\subsection DerivedStaticAssert Derived static assertions
+
+There are other macros derived from EIGEN_STATIC_ASSERT to enhance readability. Their names are self-explanatory.
+
+- \b EIGEN_STATIC_ASSERT_FIXED_SIZE(TYPE) - passes if \a TYPE is fixed size.
+- \b EIGEN_STATIC_ASSERT_DYNAMIC_SIZE(TYPE) - passes if \a TYPE is dynamic size.
+- \b EIGEN_STATIC_ASSERT_LVALUE(Derived) - fails if \a Derived is read-only.
+- \b EIGEN_STATIC_ASSERT_ARRAYXPR(Derived) - passes if \a Derived is an array expression.
+- <b>EIGEN_STATIC_ASSERT_SAME_XPR_KIND(Derived1, Derived2)</b> - fails if the two expressions are an array one and a matrix one.
+
+Because Eigen handles both fixed-size and dynamic-size expressions, some conditions cannot be clearly determined at compile time. We classify them into strict assertions and permissive assertions.
+
+\subsubsection StrictAssertions Strict assertions
+
+These assertions fail if the condition <b>may not</b> be met. For example, MatrixXd may not be a vector, so it fails EIGEN_STATIC_ASSERT_VECTOR_ONLY.
+
+- \b EIGEN_STATIC_ASSERT_VECTOR_ONLY(TYPE) - passes if \a TYPE must be a vector type.
+- <b>EIGEN_STATIC_ASSERT_VECTOR_SPECIFIC_SIZE(TYPE, SIZE)</b> - passes if \a TYPE must be a vector of the given size.
+- <b>EIGEN_STATIC_ASSERT_MATRIX_SPECIFIC_SIZE(TYPE, ROWS, COLS)</b> - passes if \a TYPE must be a matrix with given rows and columns.
+
+\subsubsection PermissiveAssertions Permissive assertions
+
+These assertions fail if the condition \b cannot be met. For example, MatrixXd and Matrix4d may have the same size, so they pass EIGEN_STATIC_ASSERT_SAME_MATRIX_SIZE.
+
+- \b EIGEN_STATIC_ASSERT_SAME_VECTOR_SIZE(TYPE0,TYPE1) - fails if the two vector expression types must have different sizes.
+- \b EIGEN_STATIC_ASSERT_SAME_MATRIX_SIZE(TYPE0,TYPE1) - fails if the two matrix expression types must have different sizes.
+- \b EIGEN_STATIC_ASSERT_SIZE_1x1(TYPE) - fails if \a TYPE cannot be an 1x1 expression.
+
+See StaticAssert.h for details such as what messages they throw.
+
+\subsection DisableStaticAssert Disabling static assertions
+
+If \c EIGEN_NO_STATIC_ASSERT is defined, the static assertions are removed entirely:
+
+\code
+#define EIGEN_STATIC_ASSERT(CONDITION,MSG)
+\endcode
+
+They are not downgraded to run-time checks, so the misuse they guard against is reported neither at compile time
+nor at run time unless the operation also has a runtime assertion.
+\c EIGEN_NO_STATIC_ASSERT is undefined by default.
+
+\subsection ShapeAssertions Shape preconditions
+
+Shared shape checks reject statically incompatible coefficient counts and product inner dimensions at compile time,
+including in release builds. Checks proven valid do not read dimensions at runtime.
+Matching rows and columns (including directional concatenation checks) follow the same rule.
+Vector adaptation and scalar extraction likewise reject provably invalid shapes, while
+allowing dynamically sized inputs that satisfy their preconditions at runtime.
+Square-only preconditions remain runtime checks, elided when the matrix is proven square.
+This preserves runtime-guarded calls on rectangular fixed-size types in C++14.
+Solver right-hand sides are checked against the appropriate fixed dimension, including
+the reversed row/column rule for transposed solves.
+Nonempty-input checks remain runtime-only so C++14 code can guard reductions on fixed empty expressions.
+They are elided for inputs proven nonempty. Empty dense
+\c sum() and \c prod() remain valid and return their respective identity values.
+Empty \c lpNorm<Infinity>() and \c hypotNorm() likewise remain valid and return zero.
+For an empty vector, \c stableNormalized() returns an empty vector and \c stableNormalize() is a no-op;
+the internal maximum-absolute-value reduction used by stable normalization has identity zero.
+An empty vector's \c homogeneous() expression is not empty: it contains the appended coefficient one,
+so its \c sum() and \c prod() return one rather than asserting on the underlying empty vector.
+These identity reductions are valid for fixed-size empty inputs in C++14 as well as dynamic inputs.
+Tensor shape checks reject different ranks or incompatible fixed extents. Equal rank alone
+never proves equality of runtime extents.
+Unknown dimensions are checked by debug assertions; maximum storage capacities are
+not treated as actual dimensions. Row and column vectors may have equal coefficient counts.
+
+With \c EIGEN_NO_STATIC_ASSERT, these shared checks retain their debug runtime fallback.
+Defining \c EIGEN_NO_DEBUG disables the default runtime assertions, not the static diagnostics.
+This stricter validation can reject invalid code that previously compiled and only asserted
+when executed in a debug build.
+
+*/
+}

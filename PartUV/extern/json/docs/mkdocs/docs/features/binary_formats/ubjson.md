@@ -1,0 +1,232 @@
+# UBJSON
+
+Universal Binary JSON (UBJSON) is a binary form directly imitating JSON, but requiring fewer bytes of data. It aims to
+achieve the generality of JSON, combined with being much easier to process than JSON.
+
+!!! abstract "References"
+
+    - [UBJSON Website](https://ubjson.org)
+
+## Byte layout
+
+UBJSON is built from just a one-byte, human-readable ASCII *type marker* (for example, `i` for int8, `S` for string, `[` for array) followed by the payload of that type. Strings and the like are prefixed with their length, which is itself a UBJSON integer value including its marker. Numbers are stored in big-endian byte order. Containers can be written in two ways: as an *unoptimized* container that is opened with `[` or `{` and closed with `]` or `}`, or as an *optimized* container that declares a count (`#`) after the opening marker, optionally preceded by an element type (`$`); an element type is only allowed together with a count. An optimized container saves the closing marker and, with a type, the per-element markers.
+
+Consider the following JSON value (shown formatted for readability):
+
+```json
+{
+  "id": 300,
+  "name": "json",
+  "pi": 3.14,
+  "tags": [
+    "a",
+    "b"
+  ]
+}
+```
+
+`to_ubjson` encodes it to 51 bytes (shown in hexadecimal; the encoding contains no whitespace). The colors mark the role of each byte: <span class="bl bl-t">type/marker</span> <span class="bl bl-l">length/count/size</span> <span class="bl bl-d">data</span>.
+
+<div class="byte-layout" markdown="0"><table>
+<thead><tr><th>JSON</th><th>Bytes</th><th>Meaning</th></tr></thead><tbody>
+<tr><td><code>{</code></td><td><span class="bl bl-t">7B</span></td><td>object start (<code>{</code>)</td></tr>
+<tr><td><code>&quot;id&quot;: 300,</code></td><td><span class="bl bl-l">69 02</span> <span class="bl bl-d">69 64</span> <span class="bl bl-t">49</span> <span class="bl bl-d">01 2C</span></td><td>key: length 2 as int8 (<code>i</code>), then UTF-8 bytes; value: int16 (<code>I</code>), big-endian</td></tr>
+<tr><td><code>&quot;name&quot;: &quot;json&quot;,</code></td><td><span class="bl bl-l">69 04</span> <span class="bl bl-d">6E 61 6D 65</span> <span class="bl bl-t">53</span> <span class="bl bl-l">69 04</span> <span class="bl bl-d">6A 73 6F 6E</span></td><td>key: length 4; value: string (<code>S</code>), length 4 as int8, UTF-8 bytes</td></tr>
+<tr><td><code>&quot;pi&quot;: 3.14,</code></td><td><span class="bl bl-l">69 02</span> <span class="bl bl-d">70 69</span> <span class="bl bl-t">44</span> <span class="bl bl-d">40 09 1E B8 51 EB 85 1F</span></td><td>key: length 2; value: float64 (<code>D</code>), big-endian</td></tr>
+<tr><td><code>&quot;tags&quot;: [</code></td><td><span class="bl bl-l">69 04</span> <span class="bl bl-d">74 61 67 73</span> <span class="bl bl-t">5B</span></td><td>key: length 4; value: array start (<code>[</code>)</td></tr>
+<tr><td><code>&quot;a&quot;,</code></td><td><span class="bl bl-t">53</span> <span class="bl bl-l">69 01</span> <span class="bl bl-d">61</span></td><td>string, length 1</td></tr>
+<tr><td><code>&quot;b&quot;</code></td><td><span class="bl bl-t">53</span> <span class="bl bl-l">69 01</span> <span class="bl bl-d">62</span></td><td>string, length 1</td></tr>
+<tr><td><code>]</code></td><td><span class="bl bl-t">5D</span></td><td>array end (<code>]</code>)</td></tr>
+<tr><td><code>}</code></td><td><span class="bl bl-t">7D</span></td><td>object end (<code>}</code>)</td></tr>
+</tbody></table></div>
+
+## Serialization
+
+The library uses the following mapping from JSON values types to UBJSON types according to the UBJSON specification:
+
+| JSON value type | value/range                               | UBJSON type                                      | marker    |
+|-----------------|-------------------------------------------|--------------------------------------------------|-----------|
+| null            | `null`                                    | null                                             | `Z`       |
+| boolean         | `true`                                    | true                                             | `T`       |
+| boolean         | `false`                                   | false                                            | `F`       |
+| number_integer  | -9223372036854775808..-2147483649         | int64                                            | `L`       |
+| number_integer  | -2147483648..-32769                       | int32                                            | `l`       |
+| number_integer  | -32768..-129                              | int16                                            | `I`       |
+| number_integer  | -128..127                                 | int8                                             | `i`       |
+| number_integer  | 128..255                                  | uint8                                            | `U`       |
+| number_integer  | 256..32767                                | int16                                            | `I`       |
+| number_integer  | 32768..2147483647                         | int32                                            | `l`       |
+| number_integer  | 2147483648..9223372036854775807           | int64                                            | `L`       |
+| number_unsigned | 0..127                                    | int8                                             | `i`       |
+| number_unsigned | 128..255                                  | uint8                                            | `U`       |
+| number_unsigned | 256..32767                                | int16                                            | `I`       |
+| number_unsigned | 32768..2147483647                         | int32                                            | `l`       |
+| number_unsigned | 2147483648..9223372036854775807           | int64                                            | `L`       |
+| number_unsigned | 9223372036854775808..18446744073709551615 | high-precision                                   | `H`       |
+| number_float    | *any value*                               | float64 (float32 if `number_float_t` is `float`) | `D` (`d`) |
+| string          | *with shortest length indicator*          | string                                           | `S`       |
+| array           | *see notes on optimized format*           | array                                            | `[`       |
+| object          | *see notes on optimized format*           | object                                           | `{`       |
+
+!!! success "Complete mapping"
+
+    The mapping is **complete** in the sense that any JSON value type can be converted to a UBJSON value.
+
+    Any UBJSON output created by `to_ubjson` can be successfully parsed by `from_ubjson`.
+
+!!! warning "Size constraints"
+
+    The following values can **not** be converted to a UBJSON value:
+
+      - strings with more than 9223372036854775807 bytes (theoretical)
+
+!!! warning "UTF-8 validation of string values and object keys"
+
+    UBJSON's required string encoding is UTF-8. By default (the [`error_handler`](../../api/basic_json/to_ubjson.md)
+    parameter left at `keep`), `to_ubjson()` writes the bytes of string values and object keys unchanged, even if they
+    are not valid UTF-8. With `error_handler_t::strict`, it throws
+    [`type_error.316`](../../home/exceptions.md#jsonexceptiontype_error316) for ill-formed UTF-8 instead;
+    `replace`/`ignore` sanitize the string. [`JSON_STRICT_BINARY_UTF8`](../../api/macros/json_strict_binary_utf8.md)
+    makes `strict` the default.
+
+!!! info "Unused UBJSON markers"
+
+    The following markers are not used in the conversion:
+    
+    - `N`: no-op values are never written (they are skipped when reading).
+    - `C`: single-byte strings are serialized with `S` markers.
+
+!!! info "NaN/infinity handling"
+
+    NaN and infinity are written as IEEE 754 float64 values (`D`) and read back unchanged. This differs from
+    [`dump()`](../../api/basic_json/dump.md), which serializes them to `null`, and from the UBJSON specification, which
+    encodes infinity as `null` (it does not mention NaN); other UBJSON readers may therefore not accept these values.
+
+!!! info "Optimized formats"
+
+    The optimized formats for containers are supported: Parameter `use_size` adds size information to the beginning of a
+    container and removes the closing marker. Parameter `use_type` further checks whether all elements of a container
+    have the same type and adds the type marker to the beginning of the container. The `use_type` parameter must only be
+    used together with `use_size = true`: combining `use_type` with `use_size = false` throws
+    [`other_error.502`](../../home/exceptions.md#jsonexceptionother_error502) if the value contains a non-empty array,
+    object, or binary value.
+
+    Two elements have the same type if they are written with the same type marker. For example, `[1, 2]` is written with
+    the type `i`, but `[1, 200]` (`i`, `U`), `[true, false]` (`T`, `F`), and `[1, 2.5]` (`i`, `D`) are not; an empty
+    container is never given a `$` annotation of its own (an array of empty arrays is still typed `[`).
+
+    Note that `use_size = true` alone may result in larger representations - the benefit of this parameter is that the
+    receiving side is immediately informed on the number of elements of the container.
+
+    An array whose type marker is `Z` (null), `T` (true) or `F` (false) stores no payload at all, because the marker
+    already is the value. Its declared count is therefore the only thing that decides how much memory the receiving side
+    allocates, and a handful of bytes can describe billions of elements. `from_ubjson` rejects such an array with
+    [`out_of_range.408`](../../home/exceptions.md#jsonexceptionout_of_range408) when the count exceeds 1,048,576
+    (`1 << 20`), and `to_ubjson` writes longer arrays of these types in the counted but untyped form: the `$` type marker is
+    dropped, the `#` count is kept, and every element is written with its own marker (`[#l 1048577 Z Z ...`), so any value
+    it produces can be read back. Objects and untyped counted arrays are not subject to this limit.
+
+!!! info "Binary values"
+
+    If the JSON data contains the binary type, the value stored is a list of integers, as suggested by the UBJSON
+    documentation.  In particular, this means that serialization and the deserialization of a JSON containing binary
+    values into UBJSON and back will result in a different JSON object.
+
+??? example "Example: serialize JSON values to UBJSON, with and without size/type optimization"
+
+    ```cpp
+    --8<-- "examples/to_ubjson.cpp"
+    ```
+
+    Output:
+
+    ```c
+    --8<-- "examples/to_ubjson.output"
+    ```
+
+## Deserialization
+
+The library maps UBJSON types to JSON value types as follows:
+
+| UBJSON type    | JSON value type                                  | marker |
+|----------------|--------------------------------------------------|--------|
+| no-op          | *no value, next value is read*                   | `N`    |
+| null           | `null`                                           | `Z`    |
+| false          | `false`                                          | `F`    |
+| true           | `true`                                           | `T`    |
+| float32        | number_float                                     | `d`    |
+| float64        | number_float                                     | `D`    |
+| uint8          | number_unsigned                                  | `U`    |
+| int8           | number_integer                                   | `i`    |
+| int16          | number_integer                                   | `I`    |
+| int32          | number_integer                                   | `l`    |
+| int64          | number_integer                                   | `L`    |
+| string         | string                                           | `S`    |
+| char           | string                                           | `C`    |
+| high-precision | number_unsigned, number_integer, or number_float | `H`    |
+| array          | array (optimized values are supported)           | `[`    |
+| object         | object (optimized values are supported)          | `{`    |
+
+!!! info "High-precision numbers"
+
+    The payload of `H` is a length-prefixed string that is parsed as a JSON number (surrounding whitespace is ignored).
+    Integer text in the range of `number_unsigned_t` (non-negative) or `number_integer_t` (negative) is stored as such;
+    any other valid number text (larger or smaller integers, fractions, and exponents such as `1e2`) is stored as
+    `number_float`, so precision may be lost. Text that is not a valid JSON number raises
+    [`parse_error.115`](../../home/exceptions.md#jsonexceptionparse_error115), a number outside the range of
+    `number_float_t` (`1e999`) raises [`out_of_range.406`](../../home/exceptions.md#jsonexceptionout_of_range406).
+
+!!! success "Complete mapping"
+
+    Every well-formed UBJSON value can be converted to a JSON value, with these exceptions: a high-precision number
+    outside the range of `number_float_t` ([`out_of_range.406`](../../home/exceptions.md#jsonexceptionout_of_range406)),
+    an optimized array of `Z`, `T`, or `F` with more than 1,048,576 elements, and a count that exceeds the capacity of the
+    container ([`out_of_range.408`](../../home/exceptions.md#jsonexceptionout_of_range408)). High-precision numbers that
+    do not fit an integer type are stored as floating-point numbers and may lose precision. Ill-formed input is rejected
+    with a parse error.
+
+!!! info "Duplicate object keys"
+
+    If an object contains the same key more than once, the last value is kept (the UBJSON specification does not
+    address duplicate keys).
+
+!!! info "Type marker of optimized containers"
+
+    The type marker after `$` must be one of `Z`, `N`, `T`, `F`, `i`, `U`, `I`, `l`, `L`, `d`, `D`, `H`, `C`, `S`, `[`, or
+    `{`. It is checked even if the count is 0; any other marker raises
+    [`parse_error.112`](../../home/exceptions.md#jsonexceptionparse_error112). A counted object typed `N` (`{$N#i1 ...`)
+    is not supported.
+
+!!! warning "Ill-formed UTF-8 in string values and object keys"
+
+    UBJSON's required string encoding is UTF-8, but checking it on read is opt-in: with the
+    [`error_handler`](../../api/basic_json/from_ubjson.md) parameter left at `keep` (the default), `from_ubjson()`
+    accepts a string value or object key whose bytes are not valid UTF-8 and hands them back unchanged. Passing
+    `error_handler_t::strict` makes `from_ubjson()` check and throw
+    [`parse_error.113`](../../home/exceptions.md#jsonexceptionparse_error113) for ill-formed UTF-8, and
+    `replace`/`ignore` sanitize the string instead of keeping it. However,
+    [`dump()`](../../api/basic_json/dump.md) still requires valid UTF-8 and throws
+    [`type_error.316`](../../home/exceptions.md#jsonexceptiontype_error316) for a value read with the default
+    `keep` handler, unless an error handler is passed that replaces or ignores the ill-formed bytes. `to_ubjson()`'s
+    own `error_handler` parameter defaults to `keep` (see above), so such a value is written back unchanged.
+
+??? example "Example: deserialize a JSON value from UBJSON"
+
+    ```cpp
+    --8<-- "examples/from_ubjson.cpp"
+    ```
+
+    Output:
+
+    ```json
+    --8<-- "examples/from_ubjson.output"
+    ```
+
+## See also
+
+- [Binary formats](index.md) - overview and comparison of the supported binary formats
+- [Binary values](../binary_values.md) - how binary values and subtypes map to UBJSON
+- [`to_ubjson`](../../api/basic_json/to_ubjson.md) - serialize a JSON value to UBJSON
+- [`from_ubjson`](../../api/basic_json/from_ubjson.md) - parse a JSON value from UBJSON
+- [`JSON_STRICT_BINARY_UTF8`](../../api/macros/json_strict_binary_utf8.md) - reject ill-formed UTF-8 in strings
+- [SAX interface](../parsing/sax_interface.md) - decode binary formats without building a value
