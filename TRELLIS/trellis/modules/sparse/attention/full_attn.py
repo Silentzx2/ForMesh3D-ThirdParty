@@ -231,7 +231,8 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
         out = F.scaled_dot_product_attention(
             q, k, v,
             attn_mask=attn_mask.unsqueeze(0).unsqueeze(0),
-        ).squeeze(0)
+        )                                          # [1, H, T, C]
+        out = out.permute(0, 2, 1, 3).squeeze(0)   # [T, H, C] — matches flash_attn output shape
     else:
         raise ValueError(f"Unknown attention module: {ATTN}")
     
