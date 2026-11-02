@@ -32,11 +32,24 @@ def run_triposg(
 
     img_pil = prepare_image(image_input, bg_color=np.array([1.0, 1.0, 1.0]), rmbg_net=rmbg_net)
 
+    # Flash decoder uses diso DiffDMC (CUDA dual-marching-cubes) which requires
+    # Ampere+ GPUs (sm_80+). On pre-Ampere (Tesla T4 sm_75) it crashes. Fall back
+    # to hierarchical_extract_geometry which uses CPU skimage marching cubes.
+    use_flash_decoder = True
+    if torch is not None and torch.cuda.is_available():
+        try:
+            major, _ = torch.cuda.get_device_capability(pipe.device)
+            if major < 8:
+                use_flash_decoder = False
+        except Exception:
+            pass
+
     outputs = pipe(
         image=img_pil,
         generator=torch.Generator(device=pipe.device).manual_seed(seed),
         num_inference_steps=num_inference_steps,
         guidance_scale=guidance_scale,
+        use_flash_decoder=use_flash_decoder,
     ).samples[0]
     if outputs is None or outputs[0] is None:
         raise RuntimeError(

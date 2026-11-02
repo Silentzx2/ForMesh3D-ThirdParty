@@ -206,6 +206,26 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             out = flash_attn.flash_attn_varlen_kvpacked_func(q, kv, cu_seqlens_q, cu_seqlens_kv, max(q_seqlen), max(kv_seqlen))
         elif num_all_args == 3:
             out = flash_attn.flash_attn_varlen_func(q, k, v, cu_seqlens_q, cu_seqlens_kv, max(q_seqlen), max(kv_seqlen))
+    elif ATTN == 'sdpa':
+        import torch.nn.functional as F
+        if num_all_args == 1:
+            q, k, v = qkv.unbind(dim=1)
+        elif num_all_args == 2:
+            k, v = kv.unbind(dim=1)
+        # num_all_args == 3: q, k, v already separate
+        total_q = sum(q_seqlen)
+        total_kv = sum(kv_seqlen)
+        attn_mask = torch.zeros(total_q, total_kv, dtype=torch.bool, device=device)
+        q_offset = 0
+        kv_offset = 0
+        for q_len, kv_len in zip(q_seqlen, kv_seqlen):
+            attn_mask[q_offset:q_offset + q_len, kv_offset:kv_offset + kv_len] = True
+            q_offset += q_len
+            kv_offset += kv_len
+        out = F.scaled_dot_product_attention(
+            q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0),
+            attn_mask=attn_mask.unsqueeze(0).unsqueeze(0),
+        ).squeeze(0)
     else:
         raise ValueError(f"Unknown attention module: {ATTN}")
     
