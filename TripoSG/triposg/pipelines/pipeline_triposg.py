@@ -315,7 +315,7 @@ class TripoSGPipeline(DiffusionPipeline, TransformerDiffusionMixin):
         meshes = [
             trimesh.Trimesh(mesh_v_f[0].astype(np.float32), mesh_v_f[1])
             for mesh_v_f in output
-            if mesh_v_f is not None
+            if mesh_v_f is not None and mesh_v_f[0] is not None
         ]
         
         # Offload all models
