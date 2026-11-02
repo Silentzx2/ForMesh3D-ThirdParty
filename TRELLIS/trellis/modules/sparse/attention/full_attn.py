@@ -215,6 +215,10 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
         elif num_all_args == 2:
             k, v = kv.unbind(dim=1)
         # num_all_args == 3: q, k, v already separate
+        # q/k/v shape: [T, H, C]; sdpa expects [batch, heads, seq_len, head_dim]
+        q = q.unsqueeze(0).permute(0, 2, 1, 3)   # [1, H, T_Q, C]
+        k = k.unsqueeze(0).permute(0, 2, 1, 3)   # [1, H, T_KV, C]
+        v = v.unsqueeze(0).permute(0, 2, 1, 3)   # [1, H, T_KV, C]
         total_q = sum(q_seqlen)
         total_kv = sum(kv_seqlen)
         attn_mask = torch.zeros(total_q, total_kv, dtype=torch.bool, device=device)
@@ -225,7 +229,7 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
             q_offset += q_len
             kv_offset += kv_len
         out = F.scaled_dot_product_attention(
-            q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0),
+            q, k, v,
             attn_mask=attn_mask.unsqueeze(0).unsqueeze(0),
         ).squeeze(0)
     else:
