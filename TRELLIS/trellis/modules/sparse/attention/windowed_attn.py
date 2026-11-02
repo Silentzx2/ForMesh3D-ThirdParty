@@ -112,6 +112,14 @@ def sparse_windowed_scaled_dot_product_self_attention(
             out = xops.memory_efficient_attention(q, k, v)          # [B, N, H, C]
         elif ATTN == 'flash_attn':
             out = flash_attn.flash_attn_qkvpacked_func(qkv_feats)   # [B, N, H, C]
+        elif ATTN == 'sdpa':
+            import torch.nn.functional as F
+            q, k, v = qkv_feats.unbind(dim=2)                       # [B, N, H, C]
+            q = q.permute(0, 2, 1, 3)                               # [B, H, N, C]
+            k = k.permute(0, 2, 1, 3)
+            v = v.permute(0, 2, 1, 3)
+            out = F.scaled_dot_product_attention(q, k, v)           # [B, H, N, C]
+            out = out.permute(0, 2, 1, 3)                           # [B, N, H, C]
         else:
             raise ValueError(f"Unknown attention module: {ATTN}")
         out = out.reshape(B * N, H, C)                              # [M, H, C]
@@ -127,6 +135,22 @@ def sparse_windowed_scaled_dot_product_self_attention(
             cu_seqlens = torch.cat([torch.tensor([0]), torch.cumsum(torch.tensor(seq_lens), dim=0)], dim=0) \
                         .to(qkv.device).int()
             out = flash_attn.flash_attn_varlen_qkvpacked_func(qkv_feats, cu_seqlens, max(seq_lens)) # [M, H, C]
+        elif ATTN == 'sdpa':
+            import torch.nn.functional as F
+            q, k, v = qkv_feats.unbind(dim=1)                       # [M, H, C]
+            q = q.unsqueeze(0).permute(0, 2, 1, 3)                  # [1, H, M, C]
+            k = k.unsqueeze(0).permute(0, 2, 1, 3)
+            v = v.unsqueeze(0).permute(0, 2, 1, 3)
+            total = sum(seq_lens)
+            mask = torch.zeros(total, total, dtype=torch.bool, device=qkv.device)
+            offset = 0
+            for seq_len in seq_lens:
+                mask[offset:offset + seq_len, offset:offset + seq_len] = True
+                offset += seq_len
+            out = F.scaled_dot_product_attention(
+                q, k, v, attn_mask=mask.unsqueeze(0).unsqueeze(0)
+            )                                                       # [1, H, M, C]
+            out = out.permute(0, 2, 1, 3).squeeze(0)                # [M, H, C]
 
     out = out[bwd_indices]      # [T, H, C]
 
