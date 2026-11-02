@@ -7,6 +7,8 @@ if ATTN == 'xformers':
     import xformers.ops as xops
 elif ATTN == 'flash_attn':
     import flash_attn
+elif ATTN == 'sdpa':
+    pass  # uses torch.nn.functional.scaled_dot_product_attention at call time
 else:
     raise ValueError(f"Unknown attention module: {ATTN}")
 
