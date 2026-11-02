@@ -312,7 +312,11 @@ class TripoSGPipeline(DiffusionPipeline, TransformerDiffusionMixin):
                 bounds=bounds,
                 octree_depth=flash_octree_depth,
             )
-        meshes = [trimesh.Trimesh(mesh_v_f[0].astype(np.float32), mesh_v_f[1]) for mesh_v_f in output]
+        meshes = [
+            trimesh.Trimesh(mesh_v_f[0].astype(np.float32), mesh_v_f[1])
+            for mesh_v_f in output
+            if mesh_v_f is not None
+        ]
         
         # Offload all models
         self.maybe_free_model_hooks()

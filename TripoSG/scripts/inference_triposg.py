@@ -38,6 +38,12 @@ def run_triposg(
         num_inference_steps=num_inference_steps,
         guidance_scale=guidance_scale,
     ).samples[0]
+    if outputs is None or outputs[0] is None:
+        raise RuntimeError(
+            "TripoSG mesh extraction returned no output: the diso "
+            "dual-marching-cubes CUDA kernel failed on this GPU "
+            "(likely pre-Ampere / sm_75 incompatibility)."
+        )
     mesh = trimesh.Trimesh(outputs[0].astype(np.float32), np.ascontiguousarray(outputs[1]))
 
     if faces > 0:
