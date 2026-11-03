@@ -396,8 +396,9 @@ class TaoFlowForgePipeline:
                 raise ValueError(f"Unsupported resume artifact stage: {resume_stage}")
             artifact_paths[resume_stage] = Path(resume_from)
 
-        needed = tuple(stage for stage in (0, 1, 2) if stage > resume_stage)
-        self.load_models(needed)
+        if not self._offload_enabled:
+            needed = tuple(stage for stage in (0, 1, 2) if stage > resume_stage)
+            self.load_models(needed)
         if boundary_state is None:
             seed_all(use_seed)
         else:
@@ -424,8 +425,15 @@ class TaoFlowForgePipeline:
             )
 
         if resume_stage < 0:
+            if self._offload_enabled and self._stage0 is None:
+                self.load_models((0,))
             started = time.perf_counter()
             coordinates = self._infer_stage0(image_tensor, show_progress)
+            if self._offload_enabled:
+                self._stage0 = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             boundary_state = capture_random_state()
             artifact_paths[0] = destination / "stage0.npz"
             save_stage_artifact(
@@ -445,8 +453,15 @@ class TaoFlowForgePipeline:
         if resume_stage < 1:
             if coordinates is None:
                 raise ValueError("No Stage 0 coordinates are available")
+            if self._offload_enabled and self._stage1 is None:
+                self.load_models((1,))
             started = time.perf_counter()
             vertices = self._infer_stage1(image_tensor, coordinates, show_progress)
+            if self._offload_enabled:
+                self._stage1 = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             boundary_state = capture_random_state()
             artifact_paths[1] = destination / "stage1.npz"
             save_stage_artifact(
@@ -466,8 +481,15 @@ class TaoFlowForgePipeline:
         if resume_stage < 2:
             if vertices is None:
                 raise ValueError("No Stage 1 vertices are available")
+            if self._offload_enabled and self._stage2 is None:
+                self.load_models((2,))
             started = time.perf_counter()
             mesh = self._infer_stage2(image_tensor, vertices, show_progress)
+            if self._offload_enabled:
+                self._stage2 = None
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
             boundary_state = capture_random_state()
             artifact_paths[2] = destination / "stage2.npz"
             save_stage_artifact(
