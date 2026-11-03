@@ -81,9 +81,7 @@ def geo_reconstruct(rgb_pils, normal_pils, front_pil, do_refine=False, predict_n
     # transfer the alpha channel of rm_normals to img_list
     for idx, img in enumerate(rm_normals):
         if idx == 0 and img_list[0].mode == "RGBA":
-            # DEV_LOW_RAM_MODE: match rm_normals size (512x512) instead of 2048x2048 to prevent OOM
-            # TODO: Restore (2048, 2048) once Unique3D is verified stable in production
-            temp = img_list[0].resize(rm_normals[0].size)
+            temp = img_list[0].resize((2048, 2048))
             rm_normals[0] = Image.fromarray(np.concatenate([np.array(rm_normals[0])[:, :, :3], np.array(temp)[:, :, 3:4]], axis=-1))
             continue
         img_list[idx] = Image.fromarray(np.concatenate([np.array(img_list[idx]), np.array(img)[:, :, 3:4]], axis=-1))
@@ -96,11 +94,11 @@ def geo_reconstruct(rgb_pils, normal_pils, front_pil, do_refine=False, predict_n
         meshes = fast_geo(normal_stg1[0], normal_stg1[2], normal_stg1[1], init_type=init_type)
         _ = multiview_color_projection(meshes, rgb_pils, resolution=512, device="cuda", complete_unseen=False, confidence_threshold=0.1)    # just check for validation, may throw error
         vertices, faces, _ = from_py3d_mesh(meshes)
-        vertices, faces = reconstruct_stage1(normal_stg1, steps=1, vertices=vertices, faces=faces, start_edge_len=0.1, end_edge_len=0.02, gain=0.05, return_mesh=False, loss_expansion_weight=expansion_weight)
+        vertices, faces = reconstruct_stage1(normal_stg1, steps=200, vertices=vertices, faces=faces, start_edge_len=0.1, end_edge_len=0.02, gain=0.05, return_mesh=False, loss_expansion_weight=expansion_weight)
     elif init_type in ["ball"]:
-        vertices, faces = reconstruct_stage1(normal_stg1, steps=1, end_edge_len=0.01, return_mesh=False, loss_expansion_weight=expansion_weight)
+        vertices, faces = reconstruct_stage1(normal_stg1, steps=200, end_edge_len=0.01, return_mesh=False, loss_expansion_weight=expansion_weight)
     if do_refine:
-        vertices, faces = run_mesh_refine(vertices, faces, rm_normals, steps=1, start_edge_len=0.02, end_edge_len=0.005, decay=0.99, update_normal_interval=20, update_warmup=5, return_mesh=False, process_inputs=False, process_outputs=False)
+        vertices, faces = run_mesh_refine(vertices, faces, rm_normals, steps=100, start_edge_len=0.02, end_edge_len=0.005, decay=0.99, update_normal_interval=20, update_warmup=5, return_mesh=False, process_inputs=False, process_outputs=False)
     meshes = simple_clean_mesh(to_pyml_mesh(vertices, faces), apply_smooth=True, stepsmoothnum=1, apply_sub_divide=True, sub_divide_threshold=0.25).to("cuda")
     new_meshes = multiview_color_projection(meshes, img_list, resolution=1024, device="cuda", complete_unseen=True, confidence_threshold=0.2, cameras_list = get_cameras_list([0, 90, 180, 270], "cuda", focal=1))
     return new_meshes

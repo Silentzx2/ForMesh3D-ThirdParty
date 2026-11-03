@@ -20,7 +20,7 @@ if hasattr(pipeline, "enable_attention_slicing"):
     except Exception:
         pass
 
-def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True, num_inference_steps=1, **kwargs):
+def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True, num_inference_steps=30, **kwargs):
     img_list = image if isinstance(image, list) else [image]
     img_list = [rgba_to_rgb(i) if i.mode == 'RGBA' else i for i in img_list]
     ret = []
