@@ -180,7 +180,15 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
         k = k.unsqueeze(0)
         v = v.unsqueeze(0)
         mask = xops.fmha.BlockDiagonalMask.from_seqlens(q_seqlen, kv_seqlen)
+        # xformers rejects bfloat16 on pre-Ampere GPUs (compute capability < 8.0).
+        # Cast to float16 for the kernel, then restore original dtype.
+        # shortcut: assumes the calling model handles numerical range safely in fp16.
+        _orig_dtype = q.dtype
+        if _orig_dtype == torch.bfloat16:
+            q, k, v = q.to(torch.float16), k.to(torch.float16), v.to(torch.float16)
         out = xops.memory_efficient_attention(q, k, v, mask)[0]
+        if _orig_dtype == torch.bfloat16:
+            out = out.to(_orig_dtype)
     elif config.ATTN == 'flash_attn':
         if 'flash_attn' not in globals():
             import flash_attn
