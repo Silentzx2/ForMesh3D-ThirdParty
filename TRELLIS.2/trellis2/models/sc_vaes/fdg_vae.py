@@ -97,6 +97,8 @@ class FlexiDualGridVaeDecoder(SparseUnetVaeDecoder):
         else:
             out_list = list(decoded) if isinstance(decoded, tuple) else [decoded]
             h = out_list[0]
+            if not torch.isfinite(h.feats).all().item():
+                raise RuntimeError("TRELLIS.2 FlexiDualGrid decoder produced non-finite geometry features.")
             vertices = h.replace((1 + 2 * self.voxel_margin) * F.sigmoid(h.feats[..., 0:3]) - self.voxel_margin)
             intersected = h.replace(h.feats[..., 3:6] > 0)
             quad_lerp = h.replace(F.softplus(h.feats[..., 6:7]))

@@ -9,6 +9,34 @@ __all__ = [
 ]
 
 
+def _xformers_attention(q, k, v, mask, xops):
+    original_dtype = q.dtype
+    if original_dtype != torch.bfloat16 or q.device.type != 'cuda':
+        return xops.memory_efficient_attention(q, k, v, mask)[0]
+
+    capability = torch.cuda.get_device_capability(q.device)
+    if capability[0] >= 8:
+        try:
+            return xops.memory_efficient_attention(q, k, v, mask)[0]
+        except NotImplementedError:
+            # Keep the model's BF16 inputs on modern GPUs when a matching kernel exists.
+            # Retry in FP32 only when this installed xFormers build has no BF16 operator
+            # for the actual tensor shape, head dimension, and block-diagonal mask.
+            pass
+
+    try:
+        # Pre-Ampere GPUs (including T4 / sm_75) use FP32, never a range-losing FP16 cast.
+        output = xops.memory_efficient_attention(q.float(), k.float(), v.float(), mask)[0]
+    except NotImplementedError as exc:
+        raise RuntimeError(
+            "TRELLIS.2 xFormers has no compatible BF16 or FP32 attention operator "
+            f"for CUDA compute capability {capability[0]}.{capability[1]}. "
+            "Install an xFormers build with a compatible CUDA operator or select "
+            "another supported sparse-attention backend."
+        ) from exc
+    return output.to(original_dtype)
+
+
 @overload
 def sparse_scaled_dot_product_attention(qkv: VarLenTensor) -> VarLenTensor:
     """
@@ -180,15 +208,7 @@ def sparse_scaled_dot_product_attention(*args, **kwargs):
         k = k.unsqueeze(0)
         v = v.unsqueeze(0)
         mask = xops.fmha.BlockDiagonalMask.from_seqlens(q_seqlen, kv_seqlen)
-        # xformers rejects bfloat16 on pre-Ampere GPUs (compute capability < 8.0).
-        # Cast to float16 for the kernel, then restore original dtype.
-        # shortcut: assumes the calling model handles numerical range safely in fp16.
-        _orig_dtype = q.dtype
-        if _orig_dtype == torch.bfloat16:
-            q, k, v = q.to(torch.float16), k.to(torch.float16), v.to(torch.float16)
-        out = xops.memory_efficient_attention(q, k, v, mask)[0]
-        if _orig_dtype == torch.bfloat16:
-            out = out.to(_orig_dtype)
+        out = _xformers_attention(q, k, v, mask, xops)
     elif config.ATTN == 'flash_attn':
         if 'flash_attn' not in globals():
             import flash_attn

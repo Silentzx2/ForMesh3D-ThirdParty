@@ -10,6 +10,11 @@ from ..modules import image_feature_extractor
 from ..representations import Mesh, MeshWithVoxel
 
 
+def _require_finite(tensor: torch.Tensor, stage: str) -> None:
+    if not torch.isfinite(tensor).all().item():
+        raise RuntimeError(f"TRELLIS.2 {stage} contains NaN or Inf; aborting before mesh extraction.")
+
+
 class Trellis2ImageTo3DPipeline(Pipeline):
     """
     Pipeline for inferring Trellis2 image-to-3D models.
@@ -227,6 +232,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         raw = decoder(z_s)
         if self.low_vram:
             decoder.cpu()
+        _require_finite(raw, "sparse-structure decoder logits")
 
         if resolution != raw.shape[2]:
             ratio = raw.shape[2] // resolution
@@ -237,14 +243,12 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         coords = torch.argwhere(pooled > 0)[:, [0, 2, 3, 4]].int()
 
         if coords.shape[0] == 0:
-            # shortcut: flow-matching didn't converge enough to cross the 0-logit threshold
-            # (can happen with low steps or low guidance_strength). Fall back to top-1% voxels
-            # by raw logit so the pipeline produces something rather than crashing.
-            # Upgrade path: raise steps or guidance_strength in sparse_structure_sampler_params.
-            flat = pooled.flatten()
-            k = max(1, int(0.01 * flat.numel()))
-            threshold = flat.topk(k).values.min()
-            coords = torch.argwhere(pooled > threshold)[:, [0, 2, 3, 4]].int()
+            max_logit = float(pooled.max().item())
+            raise RuntimeError(
+                "TRELLIS.2 sparse-structure decoding produced no occupied voxels "
+                f"at the zero-logit threshold (resolution={resolution}, max_logit={max_logit:.6g}). "
+                "No fallback coordinates were fabricated; check sampler convergence and attention precision."
+            )
 
         return coords
 
@@ -285,6 +289,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         std = torch.tensor(self.shape_slat_normalization['std'])[None].to(slat.device)
         mean = torch.tensor(self.shape_slat_normalization['mean'])[None].to(slat.device)
         slat = slat * std + mean
+        _require_finite(slat.feats, "shape SLat")
         
         return slat
     
@@ -329,6 +334,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         std = torch.tensor(self.shape_slat_normalization['std'])[None].to(slat.device)
         mean = torch.tensor(self.shape_slat_normalization['mean'])[None].to(slat.device)
         slat = slat * std + mean
+        _require_finite(slat.feats, "low-resolution cascade shape SLat")
         
         # Upsample
         if self.low_vram:
@@ -346,6 +352,8 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             ], dim=1)
             coords = quant_coords.unique(dim=0)
             num_tokens = coords.shape[0]
+            if num_tokens == 0:
+                raise RuntimeError("TRELLIS.2 shape-SLat upsampling produced no high-resolution coordinates.")
             if num_tokens < max_num_tokens or hr_resolution == 1024:
                 if hr_resolution != resolution:
                     print(f"Due to the limited number of tokens, the resolution is reduced to {hr_resolution}.")
@@ -374,6 +382,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         std = torch.tensor(self.shape_slat_normalization['std'])[None].to(slat.device)
         mean = torch.tensor(self.shape_slat_normalization['mean'])[None].to(slat.device)
         slat = slat * std + mean
+        _require_finite(slat.feats, "high-resolution cascade shape SLat")
         
         return slat, hr_resolution
 

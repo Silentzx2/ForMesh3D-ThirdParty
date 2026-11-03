@@ -1,8 +1,11 @@
 from typing import *
+import logging
 import torch
 from ..voxel import Voxel
 import cumesh
 from flex_gemm.ops.grid_sample import grid_sample_3d
+
+logger = logging.getLogger(__name__)
 
 
 class Mesh:
@@ -56,10 +59,9 @@ class Mesh:
             
             self.vertices = new_vertices.to(self.device)
             self.faces = new_faces.to(self.device)
-        except Exception:
-            # CuMesh may fail on older GPUs without sm_75 binary (e.g. error 209).
-            # The decoded shape is already solid geometry; skip hole filling gracefully.
-            pass
+        except Exception as exc:
+            # Cleanup is optional; retain the last valid decoded geometry on kernel failure.
+            logger.warning("TRELLIS.2 CuMesh fill_holes skipped; original mesh preserved: %s", exc)
         
     def remove_faces(self, face_mask: torch.Tensor):
         try:
@@ -73,7 +75,8 @@ class Mesh:
             
             self.vertices = new_vertices.to(self.device)
             self.faces = new_faces.to(self.device)
-        except Exception:
+        except Exception as exc:
+            logger.warning("TRELLIS.2 CuMesh remove_faces failed; using tensor fallback: %s", exc)
             if self.faces is not None and face_mask is not None:
                 self.faces = self.faces[~face_mask.to(self.faces.device)]
         
@@ -89,8 +92,8 @@ class Mesh:
             
             self.vertices = new_vertices.to(self.device)
             self.faces = new_faces.to(self.device)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("TRELLIS.2 CuMesh simplify skipped; original mesh preserved: %s", exc)
 
 
 class TextureFilterMode:
