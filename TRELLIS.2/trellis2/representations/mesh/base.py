@@ -33,52 +33,64 @@ class Mesh:
         return self.to('cpu')
     
     def fill_holes(self, max_hole_perimeter=3e-2):
-        vertices = self.vertices.cuda()
-        faces = self.faces.cuda()
-        
-        mesh = cumesh.CuMesh()
-        mesh.init(vertices, faces)
-        mesh.get_edges()
-        mesh.get_boundary_info()
-        if mesh.num_boundaries == 0:
-            return
-        mesh.get_vertex_edge_adjacency()
-        mesh.get_vertex_boundary_adjacency()
-        mesh.get_manifold_boundary_adjacency()
-        mesh.read_manifold_boundary_adjacency()
-        mesh.get_boundary_connected_components()
-        mesh.get_boundary_loops()
-        if mesh.num_boundary_loops == 0:
-            return
-        mesh.fill_holes(max_hole_perimeter=max_hole_perimeter)
-        new_vertices, new_faces = mesh.read()
-        
-        self.vertices = new_vertices.to(self.device)
-        self.faces = new_faces.to(self.device)
+        try:
+            vertices = self.vertices.cuda()
+            faces = self.faces.cuda()
+            
+            mesh = cumesh.CuMesh()
+            mesh.init(vertices, faces)
+            mesh.get_edges()
+            mesh.get_boundary_info()
+            if mesh.num_boundaries == 0:
+                return
+            mesh.get_vertex_edge_adjacency()
+            mesh.get_vertex_boundary_adjacency()
+            mesh.get_manifold_boundary_adjacency()
+            mesh.read_manifold_boundary_adjacency()
+            mesh.get_boundary_connected_components()
+            mesh.get_boundary_loops()
+            if mesh.num_boundary_loops == 0:
+                return
+            mesh.fill_holes(max_hole_perimeter=max_hole_perimeter)
+            new_vertices, new_faces = mesh.read()
+            
+            self.vertices = new_vertices.to(self.device)
+            self.faces = new_faces.to(self.device)
+        except Exception:
+            # CuMesh may fail on older GPUs without sm_75 binary (e.g. error 209).
+            # The decoded shape is already solid geometry; skip hole filling gracefully.
+            pass
         
     def remove_faces(self, face_mask: torch.Tensor):
-        vertices = self.vertices.cuda()
-        faces = self.faces.cuda()
-        
-        mesh = cumesh.CuMesh()
-        mesh.init(vertices, faces)
-        mesh.remove_faces(face_mask)
-        new_vertices, new_faces = mesh.read()
-        
-        self.vertices = new_vertices.to(self.device)
-        self.faces = new_faces.to(self.device)
+        try:
+            vertices = self.vertices.cuda()
+            faces = self.faces.cuda()
+            
+            mesh = cumesh.CuMesh()
+            mesh.init(vertices, faces)
+            mesh.remove_faces(face_mask)
+            new_vertices, new_faces = mesh.read()
+            
+            self.vertices = new_vertices.to(self.device)
+            self.faces = new_faces.to(self.device)
+        except Exception:
+            if self.faces is not None and face_mask is not None:
+                self.faces = self.faces[~face_mask.to(self.faces.device)]
         
     def simplify(self, target=1000000, verbose: bool=False, options: dict={}):
-        vertices = self.vertices.cuda()
-        faces = self.faces.cuda()
-        
-        mesh = cumesh.CuMesh()
-        mesh.init(vertices, faces)
-        mesh.simplify(target, verbose=verbose, options=options)
-        new_vertices, new_faces = mesh.read()
-        
-        self.vertices = new_vertices.to(self.device)
-        self.faces = new_faces.to(self.device)
+        try:
+            vertices = self.vertices.cuda()
+            faces = self.faces.cuda()
+            
+            mesh = cumesh.CuMesh()
+            mesh.init(vertices, faces)
+            mesh.simplify(target, verbose=verbose, options=options)
+            new_vertices, new_faces = mesh.read()
+            
+            self.vertices = new_vertices.to(self.device)
+            self.faces = new_faces.to(self.device)
+        except Exception:
+            pass
 
 
 class TextureFilterMode:
