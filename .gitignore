@@ -28,3 +28,7 @@ wheels/
 *.log
 *.tmp
 .cache/
+
+# Model checkpoints symlinks
+Unique3D/ckpt
+ckpt
