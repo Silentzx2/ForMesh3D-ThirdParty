@@ -142,24 +142,9 @@ class ConfigurableUNet2DConditionModel(Configurable, IPAdapterMixin):
         self.set_config(init_config)
 
     def enable_xformers_memory_efficient_attention(self):
-        if hasattr(self.unet, "enable_xformers_memory_efficient_attention"):
-            try:
-                self.unet.enable_xformers_memory_efficient_attention()
-            except Exception:
-                pass
-        def recursive_add_processors(name: str, module: torch.nn.Module):
-            for sub_name, child in module.named_children():
-                recursive_add_processors(f"{name}.{sub_name}", child)
-
-            if isinstance(module, Attention):
-                if hasattr(module, 'xformers_not_supported'):
-                    return
-                old_processor = module.get_processor()
-                if isinstance(old_processor, (AttnProcessor, AttnProcessor2_0)):
-                    module.set_use_memory_efficient_attention_xformers(True)
-
-        for name, module in self.unet.named_children():
-            recursive_add_processors(name, module)
+        # PyTorch 2.0+ native SDPA (AttnProcessor2_0) handles all head dimensions and GPUs natively.
+        # xformers crashes on head_dim < 64 (normal prediction uses head_dim=40) and bf16 on T4 GPUs.
+        pass
 
     def __getattr__(self, name: str) -> Any:
         try:
