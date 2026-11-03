@@ -224,13 +224,27 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         decoder = self.models['sparse_structure_decoder']
         if self.low_vram:
             decoder.to(self.device)
-        decoded = decoder(z_s)>0
+        raw = decoder(z_s)
         if self.low_vram:
             decoder.cpu()
-        if resolution != decoded.shape[2]:
-            ratio = decoded.shape[2] // resolution
-            decoded = torch.nn.functional.max_pool3d(decoded.float(), ratio, ratio, 0) > 0.5
-        coords = torch.argwhere(decoded)[:, [0, 2, 3, 4]].int()
+
+        if resolution != raw.shape[2]:
+            ratio = raw.shape[2] // resolution
+            pooled = torch.nn.functional.max_pool3d(raw, ratio, ratio, 0)
+        else:
+            pooled = raw
+
+        coords = torch.argwhere(pooled > 0)[:, [0, 2, 3, 4]].int()
+
+        if coords.shape[0] == 0:
+            # shortcut: flow-matching didn't converge enough to cross the 0-logit threshold
+            # (can happen with low steps or low guidance_strength). Fall back to top-1% voxels
+            # by raw logit so the pipeline produces something rather than crashing.
+            # Upgrade path: raise steps or guidance_strength in sparse_structure_sampler_params.
+            flat = pooled.flatten()
+            k = max(1, int(0.01 * flat.numel()))
+            threshold = flat.topk(k).values.min()
+            coords = torch.argwhere(pooled > threshold)[:, [0, 2, 3, 4]].int()
 
         return coords
 
