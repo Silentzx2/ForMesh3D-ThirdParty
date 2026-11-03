@@ -142,7 +142,11 @@ class ConfigurableUNet2DConditionModel(Configurable, IPAdapterMixin):
         self.set_config(init_config)
 
     def enable_xformers_memory_efficient_attention(self):
-        self.unet.enable_xformers_memory_efficient_attention
+        if hasattr(self.unet, "enable_xformers_memory_efficient_attention"):
+            try:
+                self.unet.enable_xformers_memory_efficient_attention()
+            except Exception:
+                pass
         def recursive_add_processors(name: str, module: torch.nn.Module):
             for sub_name, child in module.named_children():
                 recursive_add_processors(f"{name}.{sub_name}", child)
@@ -297,6 +301,11 @@ class ConfigurableUNet2DConditionModel(Configurable, IPAdapterMixin):
                     attn_config.self_attn_ref_other_model_name, subfolder="unet", torch_dtype=self.unet.dtype
                 )
                 ref_unet.to(self.unet.device)
+                if hasattr(ref_unet, "enable_attention_slicing"):
+                    try:
+                        ref_unet.enable_attention_slicing(1)
+                    except Exception:
+                        pass
                 if self.attn_config.train_ref_unet_lr == 0:
                     ref_unet.eval()
                     ref_unet.requires_grad_(False)

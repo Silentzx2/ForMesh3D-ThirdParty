@@ -5,10 +5,20 @@ from app.custom_models.utils import load_pipeline
 from scripts.utils import rotate_normals_torch
 from scripts.all_typing import *
 
+import torch
 training_config = "app/custom_models/image2normal.yaml"
 checkpoint_path = "ckpt/image2normal/unet_state_dict.pth"
 trainer, pipeline = load_pipeline(training_config, checkpoint_path)
-# pipeline.enable_model_cpu_offload()
+if torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
+    try:
+        pipeline.enable_model_cpu_offload()
+    except Exception as e:
+        print(f"Warning: could not enable model CPU offload for normal_prediction: {e}")
+if hasattr(pipeline, "enable_attention_slicing"):
+    try:
+        pipeline.enable_attention_slicing()
+    except Exception:
+        pass
 
 def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True, num_inference_steps=30, **kwargs):
     img_list = image if isinstance(image, list) else [image]
@@ -20,6 +30,10 @@ def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True,
         guidance_scale=guidance_scale, 
         **kwargs
     ).images
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     images = simple_remove(images)
     if do_rotate and len(images) > 1:
         images = rotate_normals_torch(images, return_types='pil')

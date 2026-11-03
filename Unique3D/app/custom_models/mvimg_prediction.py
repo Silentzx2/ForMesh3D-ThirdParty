@@ -15,7 +15,16 @@ from scripts.utils import session, simple_preprocess
 training_config = "app/custom_models/image2mvimage.yaml"
 checkpoint_path = "ckpt/img2mvimg/unet_state_dict.pth"
 trainer, pipeline = load_pipeline(training_config, checkpoint_path)
-# pipeline.enable_model_cpu_offload()
+if torch.cuda.is_available() and hasattr(pipeline, "enable_model_cpu_offload"):
+    try:
+        pipeline.enable_model_cpu_offload()
+    except Exception as e:
+        print(f"Warning: could not enable model CPU offload for mvimg_prediction: {e}")
+if hasattr(pipeline, "enable_attention_slicing"):
+    try:
+        pipeline.enable_attention_slicing()
+    except Exception:
+        pass
 
 def predict(img_list: List[Image.Image], guidance_scale=2., **kwargs):
     if isinstance(img_list, Image.Image):
@@ -56,5 +65,10 @@ def run_mvprediction(input_image: Image.Image, remove_bg=True, guidance_scale=1.
         height=256,
         num_inference_steps=30,
     )
+
+    import gc
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     return rgb_pils, single_image

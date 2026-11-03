@@ -24,6 +24,11 @@ def generate3dv2(preview_img, input_processing, seed, render_video=True, do_refi
     if preview_img.size[0] <= 512:
         preview_img = run_sr_fast([preview_img])[0]
     rgb_pils, front_pil = run_mvprediction(preview_img, remove_bg=input_processing, seed=int(seed)) # 6s
+    import gc
+    import torch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     new_meshes = geo_reconstruct(rgb_pils, None, front_pil, do_refine=do_refine, predict_normal=True, expansion_weight=expansion_weight, init_type=init_type)
     vertices = new_meshes.verts_packed()
     vertices = vertices / 2 * 1.35
