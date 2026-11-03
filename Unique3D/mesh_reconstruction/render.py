@@ -12,7 +12,13 @@ def _warmup(glctx, device=None):
     tri = tensor([[0, 1, 2]], dtype=torch.int32)
     dr.rasterize(glctx, pos, tri, resolution=[256, 256])
 
-glctx = dr.RasterizeGLContext(output_db=False, device="cuda")
+def _get_glctx(device="cuda"):
+    try:
+        return dr.RasterizeCudaContext(device=device)
+    except Exception:
+        return dr.RasterizeGLContext(output_db=False, device=device)
+
+glctx = _get_glctx("cuda")
 
 class NormalsRenderer:
     

@@ -73,6 +73,11 @@ def geo_reconstruct(rgb_pils, normal_pils, front_pil, do_refine=False, predict_n
         rm_normals = predict_normals([img.resize((512, 512), resample=Image.LANCZOS) for img in img_list], guidance_scale=1.5)
     else:
         rm_normals = simple_remove([img.resize((512, 512), resample=Image.LANCZOS) for img in normal_pils])
+    import gc
+    import torch
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     # transfer the alpha channel of rm_normals to img_list
     for idx, img in enumerate(rm_normals):
         if idx == 0 and img_list[0].mode == "RGBA":

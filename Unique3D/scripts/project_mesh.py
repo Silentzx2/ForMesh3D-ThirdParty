@@ -67,9 +67,19 @@ def _warmup(glctx, device=None):
 
 class Pix2FacesRenderer:
     def __init__(self, device="cuda"):
-        self._glctx = dr.RasterizeGLContext(output_db=False, device=device)
+        try:
+            self._glctx = dr.RasterizeCudaContext(device=device)
+        except Exception:
+            try:
+                self._glctx = dr.RasterizeGLContext(output_db=False, device=device)
+            except Exception:
+                self._glctx = None
         self.device = device
-        _warmup(self._glctx, device)
+        if self._glctx is not None:
+            try:
+                _warmup(self._glctx, device)
+            except Exception:
+                self._glctx = None
 
     def transform_vertices(self, meshes: Meshes, cameras: CamerasBase):
         vertices = cameras.transform_points_ndc(meshes.verts_padded())
@@ -87,19 +97,26 @@ class Pix2FacesRenderer:
         return vertices
 
     def render_pix2faces_nvdiff(self, meshes: Meshes, cameras: CamerasBase, H=512, W=512):
-        meshes = meshes.to(self.device)
-        cameras = cameras.to(self.device)
-        vertices = self.transform_vertices(meshes, cameras)
-        faces = meshes.faces_packed().to(torch.int32)
-        rast_out,_ = dr.rasterize(self._glctx, vertices, faces, resolution=(H, W), grad_db=False) #C,H,W,4
-        pix_to_face = rast_out[..., -1].to(torch.int32) - 1
-        return pix_to_face
+        if self._glctx is None:
+            return render_pix2faces_py3d(meshes, cameras, H=H, W=W)['pix_to_face']
+        try:
+            meshes = meshes.to(self.device)
+            cameras = cameras.to(self.device)
+            vertices = self.transform_vertices(meshes, cameras)
+            faces = meshes.faces_packed().to(torch.int32)
+            rast_out,_ = dr.rasterize(self._glctx, vertices, faces, resolution=(H, W), grad_db=False) #C,H,W,4
+            pix_to_face = rast_out[..., -1].to(torch.int32) - 1
+            return pix_to_face
+        except Exception:
+            return render_pix2faces_py3d(meshes, cameras, H=H, W=W)['pix_to_face']
 
 pix2faces_renderer = Pix2FacesRenderer()
 
 def get_visible_faces(meshes: Meshes, cameras: CamerasBase, resolution=1024):
-    # pix_to_face = render_pix2faces_py3d(meshes, cameras, H=resolution, W=resolution)['pix_to_face']
-    pix_to_face = pix2faces_renderer.render_pix2faces_nvdiff(meshes, cameras, H=resolution, W=resolution)
+    try:
+        pix_to_face = pix2faces_renderer.render_pix2faces_nvdiff(meshes, cameras, H=resolution, W=resolution)
+    except Exception:
+        pix_to_face = render_pix2faces_py3d(meshes, cameras, H=resolution, W=resolution)['pix_to_face']
 
     unique_faces = torch.unique(pix_to_face.flatten())
     unique_faces = unique_faces[unique_faces != -1]
