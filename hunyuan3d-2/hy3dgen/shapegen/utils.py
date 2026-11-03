@@ -101,9 +101,17 @@ def smart_load_model(
         logger.info('Model path not exists, try to download from huggingface')
         try:
             from huggingface_hub import snapshot_download
+            from pathlib import Path
+            repo_id = str(original_model_path)
+            if repo_id.startswith(('/', '.')):
+                parts = Path(repo_id).parts
+                if len(parts) >= 2 and f"{parts[-2]}/{parts[-1]}" in ("tencent/Hunyuan3D-2", "tencent/Hunyuan3D-2mini", "tencent/Hunyuan3D-2.1"):
+                    repo_id = f"{parts[-2]}/{parts[-1]}"
+                else:
+                    raise FileNotFoundError(f"Model path {model_path} not found locally")
             # 只下载指定子目录
             path = snapshot_download(
-                repo_id=original_model_path,
+                repo_id=repo_id,
                 allow_patterns=[f"{subfolder}/*"],  # 关键修改：模式匹配子文件夹
             )
             model_path = os.path.join(path, subfolder)  # 保持路径拼接逻辑不变

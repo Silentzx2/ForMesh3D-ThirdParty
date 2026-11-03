@@ -1,6 +1,9 @@
 import sys
 import torch
-import gradio as gr
+try:
+    import gradio as gr
+except ImportError:
+    gr = None
 from PIL import Image
 import numpy as np
 from rembg import remove

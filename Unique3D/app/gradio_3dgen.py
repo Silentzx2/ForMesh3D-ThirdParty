@@ -1,5 +1,11 @@
 import os
-import gradio as gr
+try:
+    import gradio as gr
+except ImportError:
+    class _DummyGradio:
+        class Error(Exception):
+            pass
+    gr = _DummyGradio()
 from PIL import Image
 from pytorch3d.structures import Meshes
 from app.utils import clean_up
