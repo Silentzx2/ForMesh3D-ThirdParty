@@ -55,12 +55,18 @@ def _unwrap(output):
 
 def _sdpa_dense(q, k, v):
     if _HAS_SDPA_KERNEL:
-        with sdpa_kernel([SDPBackend.FLASH_ATTENTION]):
+        with sdpa_kernel(
+            [
+                SDPBackend.FLASH_ATTENTION,
+                SDPBackend.EFFICIENT_ATTENTION,
+                SDPBackend.MATH,
+            ]
+        ):
             return F.scaled_dot_product_attention(q, k, v)
     with torch.backends.cuda.sdp_kernel(
         enable_flash=True,
-        enable_math=False,
-        enable_mem_efficient=False,
+        enable_math=True,
+        enable_mem_efficient=True,
     ):
         return F.scaled_dot_product_attention(q, k, v)
 
