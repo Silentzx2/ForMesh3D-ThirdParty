@@ -21,20 +21,34 @@ if hasattr(pipeline, "enable_attention_slicing"):
         pass
 
 def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True, num_inference_steps=30, **kwargs):
+    if torch.cuda.is_available():
+        try:
+            pipeline.to("cuda")
+        except Exception:
+            pass
     img_list = image if isinstance(image, list) else [image]
     img_list = [rgba_to_rgb(i) if i.mode == 'RGBA' else i for i in img_list]
-    images = trainer.pipeline_forward(
-        pipeline=pipeline,
-        image=img_list,
-        num_inference_steps=num_inference_steps,
-        guidance_scale=guidance_scale, 
-        **kwargs
-    ).images
+    ret = []
+    for img in img_list:
+        out = trainer.pipeline_forward(
+            pipeline=pipeline,
+            image=img,
+            num_inference_steps=num_inference_steps,
+            guidance_scale=guidance_scale, 
+            **kwargs
+        ).images
+        ret.extend(out)
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    try:
+        pipeline.to("cpu")
+    except Exception:
+        pass
     import gc
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-    images = simple_remove(images)
+    images = simple_remove(ret)
     if do_rotate and len(images) > 1:
         images = rotate_normals_torch(images, return_types='pil')
     return images
