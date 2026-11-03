@@ -27,11 +27,6 @@ if hasattr(pipeline, "enable_attention_slicing"):
         pass
 
 def predict(img_list: List[Image.Image], guidance_scale=2., **kwargs):
-    if torch.cuda.is_available():
-        try:
-            pipeline.to("cuda")
-        except Exception:
-            pass
     if isinstance(img_list, Image.Image):
         img_list = [img_list]
     img_list = [rgba_to_rgb(i) if i.mode == 'RGBA' else i for i in img_list]

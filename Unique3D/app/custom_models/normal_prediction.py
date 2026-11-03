@@ -21,11 +21,6 @@ if hasattr(pipeline, "enable_attention_slicing"):
         pass
 
 def predict_normals(image: List[Image.Image], guidance_scale=2., do_rotate=True, num_inference_steps=30, **kwargs):
-    if torch.cuda.is_available():
-        try:
-            pipeline.to("cuda")
-        except Exception:
-            pass
     img_list = image if isinstance(image, list) else [image]
     img_list = [rgba_to_rgb(i) if i.mode == 'RGBA' else i for i in img_list]
     ret = []

@@ -245,6 +245,16 @@ class Hunyuan3DDiTPipeline:
         self.kwargs = kwargs
         self.to(device, dtype)
 
+    @property
+    def components(self):
+        return {
+            "vae": getattr(self, "vae", None),
+            "model": getattr(self, "model", None),
+            "scheduler": getattr(self, "scheduler", None),
+            "conditioner": getattr(self, "conditioner", None),
+            "image_processor": getattr(self, "image_processor", None),
+        }
+
     def compile(self):
         self.vae = torch.compile(self.vae)
         self.model = torch.compile(self.model)
@@ -580,7 +590,7 @@ class Hunyuan3DDiTPipeline:
 
         self.set_surface_extractor(mc_algo)
 
-        device = self.device
+        device = self._execution_device
         dtype = self.dtype
         do_classifier_free_guidance = guidance_scale >= 0 and \
                                       getattr(self.model, 'guidance_cond_proj_dim', None) is None
@@ -714,7 +724,7 @@ class Hunyuan3DDiTFlowMatchingPipeline(Hunyuan3DDiTPipeline):
 
         self.set_surface_extractor(mc_algo)
 
-        device = self.device
+        device = self._execution_device
         dtype = self.dtype
         do_classifier_free_guidance = guidance_scale >= 0 and not (
             hasattr(self.model, 'guidance_embed') and
