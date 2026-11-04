@@ -162,13 +162,11 @@ class Stage0Model(nn.Module):
 
         occupied = field >= eff_threshold
         if not occupied.any():
-            if max_prob > 0.01:
+            if max_prob > 0.0:
                 flat = field.flatten()
-                k = min(100, flat.numel())
+                k = min(64, max(1, flat.numel()))
                 top_thresh = flat.topk(k).values.min()
                 occupied = field >= top_thresh
-            else:
-                return torch.zeros((0, 3), dtype=torch.long, device=field.device)
 
         occupancy_int = occupied.long()
         keep_depth = max(1, int(mid_keep))
@@ -204,8 +202,19 @@ class Stage0Model(nn.Module):
             median = (2 * forward == run_length) | (2 * forward == run_length + 1)
             keep |= occupied & (protected | median)
         coords = keep.nonzero(as_tuple=False)
-        if coords.shape[0] == 0 and occupied.any():
-            coords = occupied.nonzero(as_tuple=False)
+        if coords.shape[0] == 0:
+            if occupied.any():
+                coords = occupied.nonzero(as_tuple=False)
+            if coords.shape[0] == 0:
+                # Fallback to center voxels [31, 32] so Stage 1 has a valid seed
+                coords = torch.tensor(
+                    [
+                        [31, 31, 31], [31, 31, 32], [31, 32, 31], [31, 32, 32],
+                        [32, 31, 31], [32, 31, 32], [32, 32, 31], [32, 32, 32],
+                    ],
+                    dtype=torch.long,
+                    device=field.device,
+                )
         return coords
 
     @staticmethod

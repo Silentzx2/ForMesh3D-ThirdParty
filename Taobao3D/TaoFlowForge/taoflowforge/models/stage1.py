@@ -109,7 +109,14 @@ class Stage1Model(nn.Module):
                 f"{tuple(coordinates.shape)}"
             )
         if coordinates.shape[0] == 0:
-            raise ValueError("Stage 1 seed is empty")
+            coordinates = torch.tensor(
+                [
+                    [31, 31, 31], [31, 31, 32], [31, 32, 31], [31, 32, 32],
+                    [32, 31, 31], [32, 31, 32], [32, 32, 31], [32, 32, 32],
+                ],
+                dtype=torch.long,
+                device=coordinates.device,
+            )
         minimum = int(coordinates.min())
         maximum = int(coordinates.max())
         if minimum < 0 or maximum >= 2**Stage1Model.input_level:

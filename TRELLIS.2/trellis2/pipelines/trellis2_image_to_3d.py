@@ -154,13 +154,16 @@ class Trellis2ImageTo3DPipeline(Pipeline):
                 self.rembg_model.cpu()
         output_np = np.array(output)
         alpha = output_np[:, :, 3]
-        bbox = np.argwhere(alpha > 0.8 * 255)
-        bbox = np.min(bbox[:, 1]), np.min(bbox[:, 0]), np.max(bbox[:, 1]), np.max(bbox[:, 0])
-        center = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
-        size = max(bbox[2] - bbox[0], bbox[3] - bbox[1])
-        size = int(size * 1)
-        bbox = center[0] - size // 2, center[1] - size // 2, center[0] + size // 2, center[1] + size // 2
-        output = output.crop(bbox)  # type: ignore
+        bbox_coords = np.argwhere(alpha > 0.8 * 255)
+        if bbox_coords.shape[0] == 0:
+            bbox_coords = np.argwhere(alpha > 0.1 * 255)
+        if bbox_coords.shape[0] > 0:
+            bbox = np.min(bbox_coords[:, 1]), np.min(bbox_coords[:, 0]), np.max(bbox_coords[:, 1]), np.max(bbox_coords[:, 0])
+            center = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
+            size = max(bbox[2] - bbox[0], bbox[3] - bbox[1])
+            size = max(int(size * 1.05), 1)
+            bbox = center[0] - size // 2, center[1] - size // 2, center[0] + size // 2, center[1] + size // 2
+            output = output.crop(bbox)  # type: ignore
         output = np.array(output).astype(np.float32) / 255
         output = output[:, :, :3] * output[:, :, 3:4]
         output = Image.fromarray((output * 255).astype(np.uint8))
@@ -210,7 +213,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         flow_model = self.models['sparse_structure_flow_model']
         reso = flow_model.resolution
         in_channels = flow_model.in_channels
-        noise = torch.randn(num_samples, in_channels, reso, reso, reso).to(self.device)
+        noise = torch.randn(num_samples, in_channels, reso, reso, reso, dtype=getattr(flow_model, 'dtype', torch.float32), device=self.device)
         sampler_params = {**self.sparse_structure_sampler_params, **sampler_params}
         if self.low_vram:
             flow_model.to(self.device)
@@ -229,16 +232,17 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         decoder = self.models['sparse_structure_decoder']
         if self.low_vram:
             decoder.to(self.device)
-        raw = decoder(z_s)
+        decoder_dtype = next(decoder.parameters()).dtype
+        raw = decoder(z_s.to(decoder_dtype))
         if self.low_vram:
             decoder.cpu()
         _require_finite(raw, "sparse-structure decoder logits")
 
         if resolution != raw.shape[2]:
             ratio = raw.shape[2] // resolution
-            pooled = torch.nn.functional.max_pool3d(raw, ratio, ratio, 0)
+            pooled = torch.nn.functional.max_pool3d(raw.float(), ratio, ratio, 0)
         else:
-            pooled = raw
+            pooled = raw.float()
 
         coords = torch.argwhere(pooled > 0)[:, [0, 2, 3, 4]].int()
 
@@ -273,7 +277,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         """
         # Sample structured latent
         noise = SparseTensor(
-            feats=torch.randn(coords.shape[0], flow_model.in_channels).to(self.device),
+            feats=torch.randn(coords.shape[0], flow_model.in_channels, dtype=getattr(flow_model, 'dtype', torch.float32), device=self.device),
             coords=coords,
         )
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
@@ -319,7 +323,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         """
         # LR
         noise = SparseTensor(
-            feats=torch.randn(coords.shape[0], flow_model_lr.in_channels).to(self.device),
+            feats=torch.randn(coords.shape[0], flow_model_lr.in_channels, dtype=getattr(flow_model_lr, 'dtype', torch.float32), device=self.device),
             coords=coords,
         )
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
@@ -366,7 +370,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         
         # Sample structured latent
         noise = SparseTensor(
-            feats=torch.randn(coords.shape[0], flow_model.in_channels).to(self.device),
+            feats=torch.randn(coords.shape[0], flow_model.in_channels, dtype=getattr(flow_model, 'dtype', torch.float32), device=self.device),
             coords=coords,
         )
         sampler_params = {**self.shape_slat_sampler_params, **sampler_params}
