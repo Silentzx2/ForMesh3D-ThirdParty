@@ -32,9 +32,34 @@ try:
 except Exception:
     pass
 
-if _FA3_AVAILABLE:
+def _can_use_flash_attn() -> bool:
+    if not torch.cuda.is_available():
+        return False
+    try:
+        major, _ = torch.cuda.get_device_capability()
+        return major >= 8
+    except Exception:
+        return False
+
+
+def _get_default_compute_dtype() -> torch.dtype:
+    if torch.cuda.is_available():
+        try:
+            if torch.cuda.get_device_capability()[0] < 8:
+                # Pre-Ampere GPUs (Turing sm_75, Volta sm_70) do not support
+                # bfloat16 in Cutlass/SDPA memory-efficient attention. Using
+                # bfloat16 forces PyTorch to fall back to SDPBackend.MATH, which
+                # materializes the full N x N attention matrix (allocating 10+ GiB)
+                # and OOMs. Float16 uses hardware Tensor Cores and Cutlass tiled attention.
+                return torch.float16
+        except Exception:
+            pass
+    return torch.bfloat16
+
+
+if _FA3_AVAILABLE and _can_use_flash_attn():
     ATTENTION_BACKEND = "fa3"
-elif _FA2_AVAILABLE:
+elif _FA2_AVAILABLE and _can_use_flash_attn():
     ATTENTION_BACKEND = "fa2"
 else:
     ATTENTION_BACKEND = "sdpa"
@@ -46,7 +71,7 @@ try:
 except Exception:
     _HAS_SDPA_KERNEL = False
 
-_COMPUTE_DTYPE = torch.bfloat16
+_COMPUTE_DTYPE = _get_default_compute_dtype()
 
 
 def _unwrap(output):
@@ -54,7 +79,25 @@ def _unwrap(output):
 
 
 def _sdpa_dense(q, k, v):
+    if q.is_cuda and q.dtype == torch.bfloat16:
+        try:
+            if torch.cuda.get_device_capability(q.device)[0] < 8:
+                return _sdpa_dense(q.half(), k.half(), v.half()).to(q.dtype)
+        except Exception:
+            pass
+
     if _HAS_SDPA_KERNEL:
+        if q.is_cuda:
+            try:
+                with sdpa_kernel(
+                    [
+                        SDPBackend.FLASH_ATTENTION,
+                        SDPBackend.EFFICIENT_ATTENTION,
+                    ]
+                ):
+                    return F.scaled_dot_product_attention(q, k, v)
+            except RuntimeError:
+                pass
         with sdpa_kernel(
             [
                 SDPBackend.FLASH_ATTENTION,
@@ -72,7 +115,25 @@ def _sdpa_dense(q, k, v):
 
 
 def _sdpa_masked(q, k, v, mask):
+    if q.is_cuda and q.dtype == torch.bfloat16:
+        try:
+            if torch.cuda.get_device_capability(q.device)[0] < 8:
+                return _sdpa_masked(q.half(), k.half(), v.half(), mask).to(q.dtype)
+        except Exception:
+            pass
+
     if _HAS_SDPA_KERNEL:
+        if q.is_cuda:
+            try:
+                with sdpa_kernel(
+                    [
+                        SDPBackend.EFFICIENT_ATTENTION,
+                        SDPBackend.FLASH_ATTENTION,
+                    ]
+                ):
+                    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+            except RuntimeError:
+                pass
         with sdpa_kernel(
             [
                 SDPBackend.EFFICIENT_ATTENTION,
