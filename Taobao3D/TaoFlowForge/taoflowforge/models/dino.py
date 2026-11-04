@@ -86,7 +86,11 @@ class DinoConditioner(nn.Module):
             device=next(self.model.parameters()).device,
             dtype=next(self.model.parameters()).dtype,
         )
-        output = self.model(self.transform(image)).last_hidden_state
+        output = self.model(self.transform(image))
+        # Newer transformers return a raw tensor instead of BaseModelOutput;
+        # handle both shapes so DINOv3 works regardless of transformers version.
+        if hasattr(output, "last_hidden_state"):
+            output = output.last_hidden_state
         return output[:, 1 + self.num_register_tokens :, :]
 
 
