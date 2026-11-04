@@ -154,7 +154,22 @@ class Stage0Model(nn.Module):
         if field.shape[0] != field.shape[1] or field.shape[1] != field.shape[2]:
             raise ValueError(f"Expected a cubic occupancy field, got {tuple(field.shape)}")
 
-        occupied = field >= float(threshold)
+        max_prob = float(field.max().item()) if field.numel() > 0 else 0.0
+        eff_threshold = float(threshold)
+        if max_prob < eff_threshold and max_prob > 0.05:
+            # Adaptively lower threshold if foreground was detected but peak probability is slightly below threshold
+            eff_threshold = max(0.1, max_prob * 0.8)
+
+        occupied = field >= eff_threshold
+        if not occupied.any():
+            if max_prob > 0.01:
+                flat = field.flatten()
+                k = min(100, flat.numel())
+                top_thresh = flat.topk(k).values.min()
+                occupied = field >= top_thresh
+            else:
+                return torch.zeros((0, 3), dtype=torch.long, device=field.device)
+
         occupancy_int = occupied.long()
         keep_depth = max(1, int(mid_keep))
 
@@ -188,7 +203,10 @@ class Stage0Model(nn.Module):
             protected = boundary_distance <= keep_depth
             median = (2 * forward == run_length) | (2 * forward == run_length + 1)
             keep |= occupied & (protected | median)
-        return keep.nonzero(as_tuple=False)
+        coords = keep.nonzero(as_tuple=False)
+        if coords.shape[0] == 0 and occupied.any():
+            coords = occupied.nonzero(as_tuple=False)
+        return coords
 
     @staticmethod
     def coordinates_to_centers(

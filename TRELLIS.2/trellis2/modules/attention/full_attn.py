@@ -24,6 +24,27 @@ def _naive_sdpa(q, k, v):
     return out
 
 
+def _is_pre_ampere(device=None) -> bool:
+    if not torch.cuda.is_available():
+        return False
+    try:
+        if device is None:
+            dev_idx = torch.cuda.current_device()
+        elif isinstance(device, int):
+            dev_idx = device
+        elif isinstance(device, torch.device):
+            dev_idx = device.index if device.index is not None else torch.cuda.current_device()
+        else:
+            dev_str = str(device)
+            dev_idx = int(dev_str.split(":")[-1]) if ":" in dev_str else torch.cuda.current_device()
+        return torch.cuda.get_device_capability(dev_idx)[0] < 8
+    except Exception:
+        try:
+            return torch.cuda.get_device_capability()[0] < 8
+        except Exception:
+            return False
+
+
 @overload
 def scaled_dot_product_attention(qkv: torch.Tensor) -> torch.Tensor:
     """
@@ -102,12 +123,8 @@ def scaled_dot_product_attention(*args, **kwargs):
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
         _orig_dtype = q.dtype
-        if _orig_dtype == torch.bfloat16 and q.device.type == 'cuda':
-            try:
-                if torch.cuda.get_device_capability(q.device)[0] < 8:
-                    q, k, v = q.float(), k.float(), v.float()
-            except Exception:
-                pass
+        if _orig_dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+            q, k, v = q.half(), k.half(), v.half()
         out = xops.memory_efficient_attention(q, k, v)
         if out.dtype != _orig_dtype:
             out = out.to(_orig_dtype)
@@ -138,12 +155,8 @@ def scaled_dot_product_attention(*args, **kwargs):
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
         _orig_dtype = q.dtype
-        if _orig_dtype == torch.bfloat16 and q.device.type == 'cuda':
-            try:
-                if torch.cuda.get_device_capability(q.device)[0] < 8:
-                    q, k, v = q.half(), k.half(), v.half()
-            except Exception:
-                pass
+        if _orig_dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+            q, k, v = q.half(), k.half(), v.half()
         q = q.permute(0, 2, 1, 3)   # [N, H, L, C]
         k = k.permute(0, 2, 1, 3)   # [N, H, L, C]
         v = v.permute(0, 2, 1, 3)   # [N, H, L, C]

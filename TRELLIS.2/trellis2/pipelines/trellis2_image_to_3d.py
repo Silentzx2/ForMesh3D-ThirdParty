@@ -243,11 +243,16 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         coords = torch.argwhere(pooled > 0)[:, [0, 2, 3, 4]].int()
 
         if coords.shape[0] == 0:
-            flat = pooled.flatten()
-            k = max(1, int(0.01 * flat.numel()))
-            threshold = flat.topk(k).values.min()
-            coords = torch.argwhere(pooled > threshold)[:, [0, 2, 3, 4]].int()
-            print(f"[TRELLIS.2] Warning: zero-logit threshold produced no occupied voxels (max_logit={pooled.max().item():.4f}). Falling back to top-1% voxels (threshold={threshold.item():.4f}, count={coords.shape[0]}).")
+            max_logit = float(pooled.max().item()) if pooled.numel() > 0 else -100.0
+            if max_logit > -5.0:
+                threshold = max(-1.0, max_logit - 0.5)
+                coords = torch.argwhere(pooled > threshold)[:, [0, 2, 3, 4]].int()
+                print(f"[TRELLIS.2] Warning: zero-logit threshold produced no occupied voxels (max_logit={max_logit:.4f}). Falling back to adaptive threshold {threshold:.4f} (count={coords.shape[0]}).")
+            if coords.shape[0] == 0:
+                raise RuntimeError(
+                    f"TRELLIS.2 sparse-structure decoding produced no occupied voxels (max_logit={max_logit:.4f}). "
+                    "Image foreground could not be resolved."
+                )
 
         return coords
 
