@@ -8,6 +8,7 @@ import torch
 from torch import nn
 
 from ..random import deterministic_fps
+from .attention import get_compute_dtype
 from .dino import DinoConditioner, load_pretrained_dino_state_dict
 from .flow import EulerFlowSampler
 from .ss_flow import SparseStructureFlowModel
@@ -33,7 +34,7 @@ class Stage0Model(nn.Module):
     def __init__(self):
         super().__init__()
         self._dino_encoder = DinoConditioner(image_size=512)
-        self._dino_encoder.to(dtype=torch.bfloat16)
+        self._dino_encoder.to(dtype=get_compute_dtype())
         self.denoiser = SparseStructureFlowModel()
         self.vae_decoder = SparseStructureDecoder()
         self.register_buffer(
@@ -52,10 +53,11 @@ class Stage0Model(nn.Module):
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode one ``(3,H,W)`` RGB image in ``[0,1]`` to patch tokens."""
         device = next(self.parameters()).device
+        dtype = get_compute_dtype(device)
         image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             condition = self._dino_encoder(image_batch)
@@ -97,9 +99,10 @@ class Stage0Model(nn.Module):
             self.latent_resolution,
             self.latent_resolution,
         )
+        dtype = get_compute_dtype(device)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             return self.flow_sampler.sample(
@@ -122,9 +125,10 @@ class Stage0Model(nn.Module):
     def decode_logits(self, normalized_latent: torch.Tensor) -> torch.Tensor:
         latent = normalized_latent.float() * self._latent_std + self._latent_mean
         device = latent.device
+        dtype = get_compute_dtype(device)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             logits = self.vae_decoder(latent)

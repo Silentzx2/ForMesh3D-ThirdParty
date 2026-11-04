@@ -9,6 +9,8 @@ from torch import nn
 from torchvision import transforms
 from transformers import DINOv3ViTConfig, DINOv3ViTModel
 
+from .attention import _is_pre_ampere
+
 
 class DinoConditioner(nn.Module):
     """DINOv3-L/16 wrapper matching the training-time image transform."""
@@ -82,9 +84,18 @@ class DinoConditioner(nn.Module):
             ).to(dtype=target_dtype)
 
     def forward(self, image):
+        target_device = next(self.model.parameters()).device
+        target_dtype = next(self.model.parameters()).dtype
+        if (
+            target_device.type == "cuda"
+            and _is_pre_ampere(target_device)
+            and target_dtype == torch.bfloat16
+        ):
+            self.model.to(dtype=torch.float16)
+            target_dtype = torch.float16
         image = image.to(
-            device=next(self.model.parameters()).device,
-            dtype=next(self.model.parameters()).dtype,
+            device=target_device,
+            dtype=target_dtype,
         )
         output = self.model(self.transform(image))
         # Newer transformers return a raw tensor instead of BaseModelOutput;
@@ -92,6 +103,9 @@ class DinoConditioner(nn.Module):
         if hasattr(output, "last_hidden_state"):
             output = output.last_hidden_state
         return output[:, 1 + self.num_register_tokens :, :]
+
+
+_DINO_STATE_DICT_CACHE: dict[str, dict[str, torch.Tensor]] = {}
 
 
 def load_pretrained_dino_state_dict(
@@ -102,5 +116,10 @@ def load_pretrained_dino_state_dict(
     Returns a state_dict whose keys match :class:`DinoConditioner.state_dict`
     (i.e. prefixed with ``model.``).
     """
+    path_key = str(Path(pretrained_path).resolve())
+    if path_key in _DINO_STATE_DICT_CACHE:
+        return _DINO_STATE_DICT_CACHE[path_key]
     pretrained = DINOv3ViTModel.from_pretrained(str(pretrained_path))
-    return {"model." + k: v for k, v in pretrained.state_dict().items()}
+    state = {"model." + k: v for k, v in pretrained.state_dict().items()}
+    _DINO_STATE_DICT_CACHE[path_key] = state
+    return state

@@ -42,19 +42,35 @@ def _can_use_flash_attn() -> bool:
         return False
 
 
-def _get_default_compute_dtype() -> torch.dtype:
-    if torch.cuda.is_available():
+def _is_pre_ampere(device=None) -> bool:
+    if not torch.cuda.is_available():
+        return False
+    try:
+        if device is None:
+            dev_idx = torch.cuda.current_device()
+        elif isinstance(device, int):
+            dev_idx = device
+        elif isinstance(device, torch.device):
+            dev_idx = device.index if device.index is not None else torch.cuda.current_device()
+        else:
+            dev_str = str(device)
+            dev_idx = int(dev_str.split(":")[-1]) if ":" in dev_str else torch.cuda.current_device()
+        return torch.cuda.get_device_capability(dev_idx)[0] < 8
+    except Exception:
         try:
-            if torch.cuda.get_device_capability()[0] < 8:
-                # Pre-Ampere GPUs (Turing sm_75, Volta sm_70) do not support
-                # bfloat16 in Cutlass/SDPA memory-efficient attention. Using
-                # bfloat16 forces PyTorch to fall back to SDPBackend.MATH, which
-                # materializes the full N x N attention matrix (allocating 10+ GiB)
-                # and OOMs. Float16 uses hardware Tensor Cores and Cutlass tiled attention.
-                return torch.float16
+            return torch.cuda.get_device_capability()[0] < 8
         except Exception:
-            pass
+            return False
+
+
+def get_compute_dtype(device=None) -> torch.dtype:
+    """Return float16 on pre-Ampere GPUs (sm < 80) for native tensor core acceleration, bfloat16 otherwise."""
+    if _is_pre_ampere(device):
+        return torch.float16
     return torch.bfloat16
+
+
+_get_default_compute_dtype = get_compute_dtype
 
 
 if _FA3_AVAILABLE and _can_use_flash_attn():
@@ -71,7 +87,7 @@ try:
 except Exception:
     _HAS_SDPA_KERNEL = False
 
-_COMPUTE_DTYPE = _get_default_compute_dtype()
+_COMPUTE_DTYPE = get_compute_dtype()
 
 
 def _unwrap(output):
@@ -79,12 +95,8 @@ def _unwrap(output):
 
 
 def _sdpa_dense(q, k, v):
-    if q.is_cuda and q.dtype == torch.bfloat16:
-        try:
-            if torch.cuda.get_device_capability(q.device)[0] < 8:
-                return _sdpa_dense(q.half(), k.half(), v.half()).to(q.dtype)
-        except Exception:
-            pass
+    if q.is_cuda and q.dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+        return _sdpa_dense(q.half(), k.half(), v.half()).to(q.dtype)
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
@@ -115,12 +127,8 @@ def _sdpa_dense(q, k, v):
 
 
 def _sdpa_masked(q, k, v, mask):
-    if q.is_cuda and q.dtype == torch.bfloat16:
-        try:
-            if torch.cuda.get_device_capability(q.device)[0] < 8:
-                return _sdpa_masked(q.half(), k.half(), v.half(), mask).to(q.dtype)
-        except Exception:
-            pass
+    if q.is_cuda and q.dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+        return _sdpa_masked(q.half(), k.half(), v.half(), mask).to(q.dtype)
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
@@ -148,17 +156,18 @@ def _sdpa_masked(q, k, v, mask):
 def flash_attn_qkv(q, k, v):
     """Dense attention with ``(batch, heads, tokens, channels)`` tensors."""
     original_dtype = q.dtype
+    compute_dtype = get_compute_dtype(q.device)
     if ATTENTION_BACKEND in {"fa3", "fa2"}:
-        qf = q.transpose(1, 2).to(_COMPUTE_DTYPE).contiguous()
-        kf = k.transpose(1, 2).to(_COMPUTE_DTYPE).contiguous()
-        vf = v.transpose(1, 2).to(_COMPUTE_DTYPE).contiguous()
+        qf = q.transpose(1, 2).to(compute_dtype).contiguous()
+        kf = k.transpose(1, 2).to(compute_dtype).contiguous()
+        vf = v.transpose(1, 2).to(compute_dtype).contiguous()
         function = _fa3_func if ATTENTION_BACKEND == "fa3" else _fa2_func
         output = _unwrap(function(qf, kf, vf, causal=False))
         return output.transpose(1, 2).to(original_dtype)
     output = _sdpa_dense(
-        q.to(_COMPUTE_DTYPE),
-        k.to(_COMPUTE_DTYPE),
-        v.to(_COMPUTE_DTYPE),
+        q.to(compute_dtype),
+        k.to(compute_dtype),
+        v.to(compute_dtype),
     )
     return output.to(original_dtype)
 
@@ -171,6 +180,7 @@ def flash_attn_varlen_qkv(q, k, v, valid_mask):
     batch, heads, tokens, channels = q.shape
     original_dtype = q.dtype
     device = q.device
+    compute_dtype = get_compute_dtype(device)
     valid_mask = valid_mask.to(device=device, dtype=torch.bool)
     if valid_mask.shape != (batch, tokens):
         raise ValueError(
@@ -181,9 +191,9 @@ def flash_attn_varlen_qkv(q, k, v, valid_mask):
         raise ValueError("Each sample must contain at least one valid token")
 
     if ATTENTION_BACKEND in {"fa3", "fa2"}:
-        qf = q.transpose(1, 2).contiguous().to(_COMPUTE_DTYPE)
-        kf = k.transpose(1, 2).contiguous().to(_COMPUTE_DTYPE)
-        vf = v.transpose(1, 2).contiguous().to(_COMPUTE_DTYPE)
+        qf = q.transpose(1, 2).contiguous().to(compute_dtype)
+        kf = k.transpose(1, 2).contiguous().to(compute_dtype)
+        vf = v.transpose(1, 2).contiguous().to(compute_dtype)
         lengths = valid_mask.sum(dim=1).to(torch.int32)
         cumulative = torch.zeros(batch + 1, dtype=torch.int32, device=device)
         cumulative[1:] = torch.cumsum(lengths, dim=0)
@@ -221,9 +231,9 @@ def flash_attn_varlen_qkv(q, k, v, valid_mask):
 
     mask = valid_mask[:, None, None, :]
     return _sdpa_masked(
-        q.to(_COMPUTE_DTYPE),
-        k.to(_COMPUTE_DTYPE),
-        v.to(_COMPUTE_DTYPE),
+        q.to(compute_dtype),
+        k.to(compute_dtype),
+        v.to(compute_dtype),
         mask,
     ).to(original_dtype)
 
@@ -237,6 +247,7 @@ def flash_attn_varlen_cross_qkv(q, k, v, valid_key_mask):
     key_tokens = k.shape[2]
     original_dtype = q.dtype
     device = q.device
+    compute_dtype = get_compute_dtype(device)
     valid_key_mask = valid_key_mask.to(device=device, dtype=torch.bool)
     if valid_key_mask.shape != (batch, key_tokens):
         raise ValueError(
@@ -247,9 +258,9 @@ def flash_attn_varlen_cross_qkv(q, k, v, valid_key_mask):
         raise ValueError("Each sample must contain at least one valid context token")
 
     if ATTENTION_BACKEND in {"fa3", "fa2"}:
-        qf = q.transpose(1, 2).contiguous().to(_COMPUTE_DTYPE)
-        kf = k.transpose(1, 2).contiguous().to(_COMPUTE_DTYPE)
-        vf = v.transpose(1, 2).contiguous().to(_COMPUTE_DTYPE)
+        qf = q.transpose(1, 2).contiguous().to(compute_dtype)
+        kf = k.transpose(1, 2).contiguous().to(compute_dtype)
+        vf = v.transpose(1, 2).contiguous().to(compute_dtype)
         query_cumulative = torch.arange(
             0,
             (batch + 1) * query_tokens,
@@ -287,8 +298,8 @@ def flash_attn_varlen_cross_qkv(q, k, v, valid_key_mask):
 
     mask = valid_key_mask[:, None, None, :]
     return _sdpa_masked(
-        q.to(_COMPUTE_DTYPE),
-        k.to(_COMPUTE_DTYPE),
-        v.to(_COMPUTE_DTYPE),
+        q.to(compute_dtype),
+        k.to(compute_dtype),
+        v.to(compute_dtype),
         mask,
     ).to(original_dtype)

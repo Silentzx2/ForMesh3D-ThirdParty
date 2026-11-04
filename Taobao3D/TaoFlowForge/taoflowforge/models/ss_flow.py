@@ -132,6 +132,14 @@ def _naive_attention(q, k, v, attention_mask=None):
 def _attention(q, k, v, attention_mask=None):
     backend = os.environ.get("ATTN_BACKEND", "sdpa")
     if backend == "sdpa":
+        if q.is_cuda and q.dtype == torch.bfloat16:
+            try:
+                from .attention import _is_pre_ampere
+
+                if _is_pre_ampere(q.device):
+                    q, k, v = q.half(), k.half(), v.half()
+            except Exception:
+                pass
         output = F.scaled_dot_product_attention(
             q.permute(0, 2, 1, 3),
             k.permute(0, 2, 1, 3),

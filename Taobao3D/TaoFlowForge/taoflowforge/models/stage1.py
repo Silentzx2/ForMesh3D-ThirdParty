@@ -11,6 +11,7 @@ from torch import nn
 from tqdm.auto import tqdm
 
 from ..random import deterministic_fps
+from .attention import get_compute_dtype
 from .dino import DinoConditioner, load_pretrained_dino_state_dict
 from .octree_dit import RawOctreeDenoiser, cell_centers
 
@@ -29,7 +30,7 @@ class Stage1Model(nn.Module):
     def __init__(self):
         super().__init__()
         self.dino_encoder = DinoConditioner(image_size=768)
-        self.dino_encoder.to(dtype=torch.bfloat16)
+        self.dino_encoder.to(dtype=get_compute_dtype())
         self.denoisers = nn.ModuleList(
             [RawOctreeDenoiser() for _ in _EXPERT_LEVELS]
         )
@@ -40,10 +41,11 @@ class Stage1Model(nn.Module):
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode one ``(3,H,W)`` RGB image in ``[0,1]``."""
         device = next(self.dino_encoder.parameters()).device
+        dtype = get_compute_dtype(device)
         image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             condition = self.dino_encoder(image_batch)
@@ -61,7 +63,10 @@ class Stage1Model(nn.Module):
     def prepare_device(self, device: str | torch.device) -> None:
         """Place DINO on the target device while keeping experts paged on CPU."""
         self._target_device = torch.device(device)
-        self.dino_encoder.to(self._target_device)
+        self.dino_encoder.to(
+            device=self._target_device,
+            dtype=get_compute_dtype(self._target_device),
+        )
         for expert in self.denoisers:
             expert.to("cpu")
         self._active_expert = None
@@ -184,10 +189,11 @@ class Stage1Model(nn.Module):
             desc="[Stage 1/3] refinement",
             leave=False,
         )
+        dtype = get_compute_dtype(device)
         try:
             with torch.autocast(
                 device_type=device.type,
-                dtype=torch.bfloat16,
+                dtype=dtype,
                 enabled=device.type == "cuda",
             ):
                 for level in _EXPERT_LEVELS:

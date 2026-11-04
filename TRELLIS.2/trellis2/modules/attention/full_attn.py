@@ -101,7 +101,16 @@ def scaled_dot_product_attention(*args, **kwargs):
             q, k, v = qkv.unbind(dim=2)
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
+        _orig_dtype = q.dtype
+        if _orig_dtype == torch.bfloat16 and q.device.type == 'cuda':
+            try:
+                if torch.cuda.get_device_capability(q.device)[0] < 8:
+                    q, k, v = q.float(), k.float(), v.float()
+            except Exception:
+                pass
         out = xops.memory_efficient_attention(q, k, v)
+        if out.dtype != _orig_dtype:
+            out = out.to(_orig_dtype)
     elif config.BACKEND == 'flash_attn':
         if 'flash_attn' not in globals():
             import flash_attn
@@ -128,11 +137,20 @@ def scaled_dot_product_attention(*args, **kwargs):
             q, k, v = qkv.unbind(dim=2)
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
+        _orig_dtype = q.dtype
+        if _orig_dtype == torch.bfloat16 and q.device.type == 'cuda':
+            try:
+                if torch.cuda.get_device_capability(q.device)[0] < 8:
+                    q, k, v = q.half(), k.half(), v.half()
+            except Exception:
+                pass
         q = q.permute(0, 2, 1, 3)   # [N, H, L, C]
         k = k.permute(0, 2, 1, 3)   # [N, H, L, C]
         v = v.permute(0, 2, 1, 3)   # [N, H, L, C]
         out = sdpa(q, k, v)         # [N, H, L, C]
         out = out.permute(0, 2, 1, 3)   # [N, L, H, C]
+        if out.dtype != _orig_dtype:
+            out = out.to(_orig_dtype)
     elif config.BACKEND == 'naive':
         if num_all_args == 1:
             q, k, v = qkv.unbind(dim=2)

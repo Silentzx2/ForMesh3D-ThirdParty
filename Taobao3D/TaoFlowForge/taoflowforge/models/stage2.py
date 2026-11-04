@@ -9,6 +9,7 @@ import torch
 import trimesh
 from torch import nn
 
+from .attention import get_compute_dtype
 from .dino import DinoConditioner, load_pretrained_dino_state_dict
 from .dit import RefineDiT
 from .flow import EulerFlowSampler
@@ -34,10 +35,11 @@ class Stage2Model(nn.Module):
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode a ``(3,H,W)`` image tensor in ``[0,1]``."""
         device = next(self.parameters()).device
+        dtype = get_compute_dtype(device)
         image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             features = self._dino_encoder(image_batch)
@@ -74,10 +76,11 @@ class Stage2Model(nn.Module):
                 "voxel_cond": voxel_coordinates,
             }
         device = condition.device
+        dtype = get_compute_dtype(device)
         shape = (condition.shape[0], voxel_coordinates.shape[1], self.latent_dim)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             return self.flow_sampler.sample(
@@ -160,9 +163,10 @@ class Stage2Model(nn.Module):
             )
 
         device = denormalized_latent.device
+        dtype = get_compute_dtype(device)
         with torch.autocast(
             device_type=device.type,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             enabled=device.type == "cuda",
         ):
             decoder_output = self.vertex_decoder(denormalized_latent)
