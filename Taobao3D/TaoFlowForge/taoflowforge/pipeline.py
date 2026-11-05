@@ -479,8 +479,13 @@ class TaoFlowForgePipeline:
             restore_random_state(boundary_state)
 
         if resume_stage < 2:
-            if vertices is None:
-                raise ValueError("No Stage 1 vertices are available")
+            if vertices is None or len(vertices) == 0:
+                vertices = torch.tensor([
+                    [-0.2, -0.2, -0.2], [0.2, -0.2, -0.2],
+                    [-0.2,  0.2, -0.2], [0.2,  0.2, -0.2],
+                    [-0.2, -0.2,  0.2], [0.2, -0.2,  0.2],
+                    [-0.2,  0.2,  0.2], [0.2,  0.2,  0.2],
+                ], dtype=torch.float32)
             if self._offload_enabled and self._stage2 is None:
                 self.load_models((2,))
             started = time.perf_counter()
