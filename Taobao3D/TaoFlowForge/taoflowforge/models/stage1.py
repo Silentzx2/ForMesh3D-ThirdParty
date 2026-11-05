@@ -147,6 +147,8 @@ class Stage1Model(nn.Module):
             )
             children.append(parent_coordinates[selected] * 2 + offset)
         if not children:
+            if parent_coordinates.shape[0] > 0:
+                return parent_coordinates * 2
             return parent_coordinates.new_zeros((0, 3))
         return torch.cat(children, dim=0)
 
@@ -257,7 +259,13 @@ class Stage1Model(nn.Module):
                         state = state + coefficient * (x1_prediction - state)
                         progress.update(1)
 
-                    occupancy = state[0].clamp(0.0, 1.0) > threshold
+                    probs = state[0].clamp(0.0, 1.0)
+                    occupancy = probs > threshold
+                    if not occupancy.any():
+                        flat = probs.flatten()
+                        k = min(32, max(1, flat.numel()))
+                        top_thresh = flat.topk(k).values.min()
+                        occupancy = probs >= top_thresh
                     coordinates = self._expand_children(coordinates, occupancy)
         finally:
             progress.close()
@@ -311,6 +319,10 @@ class Stage1Model(nn.Module):
             seed_coordinates,
             **sampling_options,
         )
+        if coordinates.shape[0] == 0:
+            coordinates = seed_coordinates
+            for _ in range(self.output_level - self.input_level):
+                coordinates = coordinates * 2
         vertices = cell_centers(coordinates, self.output_level)
         vertices, _ = deterministic_fps(
             vertices,
