@@ -95,8 +95,11 @@ def _unwrap(output):
 
 
 def _sdpa_dense(q, k, v):
+    q = q.contiguous()
+    k = k.contiguous()
+    v = v.contiguous()
     if q.is_cuda and q.dtype == torch.bfloat16 and _is_pre_ampere(q.device):
-        return _sdpa_dense(q.half(), k.half(), v.half()).to(q.dtype)
+        return _sdpa_dense(q.half(), k.half(), v.half()).to(q.dtype).contiguous()
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
@@ -107,7 +110,7 @@ def _sdpa_dense(q, k, v):
                         SDPBackend.EFFICIENT_ATTENTION,
                     ]
                 ):
-                    return F.scaled_dot_product_attention(q, k, v)
+                    return F.scaled_dot_product_attention(q, k, v).contiguous()
             except RuntimeError:
                 pass
         with sdpa_kernel(
@@ -117,18 +120,21 @@ def _sdpa_dense(q, k, v):
                 SDPBackend.MATH,
             ]
         ):
-            return F.scaled_dot_product_attention(q, k, v)
+            return F.scaled_dot_product_attention(q, k, v).contiguous()
     with torch.backends.cuda.sdp_kernel(
         enable_flash=True,
         enable_math=True,
         enable_mem_efficient=True,
     ):
-        return F.scaled_dot_product_attention(q, k, v)
+        return F.scaled_dot_product_attention(q, k, v).contiguous()
 
 
 def _sdpa_masked(q, k, v, mask):
+    q = q.contiguous()
+    k = k.contiguous()
+    v = v.contiguous()
     if q.is_cuda and q.dtype == torch.bfloat16 and _is_pre_ampere(q.device):
-        return _sdpa_masked(q.half(), k.half(), v.half(), mask).to(q.dtype)
+        return _sdpa_masked(q.half(), k.half(), v.half(), mask).to(q.dtype).contiguous()
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
@@ -139,7 +145,7 @@ def _sdpa_masked(q, k, v, mask):
                         SDPBackend.FLASH_ATTENTION,
                     ]
                 ):
-                    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+                    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask).contiguous()
             except RuntimeError:
                 pass
         with sdpa_kernel(
@@ -149,8 +155,8 @@ def _sdpa_masked(q, k, v, mask):
                 SDPBackend.MATH,
             ]
         ):
-            return F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
-    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask)
+            return F.scaled_dot_product_attention(q, k, v, attn_mask=mask).contiguous()
+    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask).contiguous()
 
 
 def flash_attn_qkv(q, k, v):
@@ -165,11 +171,11 @@ def flash_attn_qkv(q, k, v):
         output = _unwrap(function(qf, kf, vf, causal=False))
         return output.transpose(1, 2).to(original_dtype)
     output = _sdpa_dense(
-        q.to(compute_dtype),
-        k.to(compute_dtype),
-        v.to(compute_dtype),
+        q.to(compute_dtype).contiguous(),
+        k.to(compute_dtype).contiguous(),
+        v.to(compute_dtype).contiguous(),
     )
-    return output.to(original_dtype)
+    return output.to(original_dtype).contiguous()
 
 
 def flash_attn_varlen_qkv(q, k, v, valid_mask):
@@ -231,11 +237,11 @@ def flash_attn_varlen_qkv(q, k, v, valid_mask):
 
     mask = valid_mask[:, None, None, :]
     return _sdpa_masked(
-        q.to(compute_dtype),
-        k.to(compute_dtype),
-        v.to(compute_dtype),
+        q.to(compute_dtype).contiguous(),
+        k.to(compute_dtype).contiguous(),
+        v.to(compute_dtype).contiguous(),
         mask,
-    ).to(original_dtype)
+    ).to(original_dtype).contiguous()
 
 
 def flash_attn_varlen_cross_qkv(q, k, v, valid_key_mask):
@@ -298,8 +304,8 @@ def flash_attn_varlen_cross_qkv(q, k, v, valid_key_mask):
 
     mask = valid_key_mask[:, None, None, :]
     return _sdpa_masked(
-        q.to(compute_dtype),
-        k.to(compute_dtype),
-        v.to(compute_dtype),
+        q.to(compute_dtype).contiguous(),
+        k.to(compute_dtype).contiguous(),
+        v.to(compute_dtype).contiguous(),
         mask,
-    ).to(original_dtype)
+    ).to(original_dtype).contiguous()

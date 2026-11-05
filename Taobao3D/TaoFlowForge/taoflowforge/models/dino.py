@@ -89,10 +89,10 @@ class DinoConditioner(nn.Module):
         if (
             target_device.type == "cuda"
             and _is_pre_ampere(target_device)
-            and target_dtype == torch.bfloat16
+            and target_dtype != torch.float32
         ):
-            self.model.to(dtype=torch.float16)
-            target_dtype = torch.float16
+            self.model.to(dtype=torch.float32)
+            target_dtype = torch.float32
         image = image.to(
             device=target_device,
             dtype=target_dtype,

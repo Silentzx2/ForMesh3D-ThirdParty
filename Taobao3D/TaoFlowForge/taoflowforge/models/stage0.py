@@ -8,7 +8,7 @@ import torch
 from torch import nn
 
 from ..random import deterministic_fps
-from .attention import get_compute_dtype
+from .attention import _is_pre_ampere, get_compute_dtype
 from .dino import DinoConditioner, load_pretrained_dino_state_dict
 from .flow import EulerFlowSampler
 from .ss_flow import SparseStructureFlowModel
@@ -34,7 +34,8 @@ class Stage0Model(nn.Module):
     def __init__(self):
         super().__init__()
         self._dino_encoder = DinoConditioner(image_size=512)
-        self._dino_encoder.to(dtype=get_compute_dtype())
+        dino_dtype = torch.bfloat16 if not _is_pre_ampere() else torch.float32
+        self._dino_encoder.to(dtype=dino_dtype)
         self.denoiser = SparseStructureFlowModel()
         self.vae_decoder = SparseStructureDecoder()
         self.register_buffer(
@@ -53,12 +54,12 @@ class Stage0Model(nn.Module):
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode one ``(3,H,W)`` RGB image in ``[0,1]`` to patch tokens."""
         device = next(self.parameters()).device
-        dtype = get_compute_dtype(device)
+        dtype = torch.bfloat16 if (device.type == "cuda" and not _is_pre_ampere(device)) else torch.float32
         image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
         with torch.autocast(
             device_type=device.type,
             dtype=dtype,
-            enabled=device.type == "cuda",
+            enabled=device.type == "cuda" and dtype == torch.bfloat16,
         ):
             condition = self._dino_encoder(image_batch)
         return condition.float()
@@ -206,14 +207,9 @@ class Stage0Model(nn.Module):
             if occupied.any():
                 coords = occupied.nonzero(as_tuple=False)
             if coords.shape[0] == 0:
-                # Fallback to center voxels [31, 32] so Stage 1 has a valid seed
-                coords = torch.tensor(
-                    [
-                        [31, 31, 31], [31, 31, 32], [31, 32, 31], [31, 32, 32],
-                        [32, 31, 31], [32, 31, 32], [32, 32, 31], [32, 32, 32],
-                    ],
-                    dtype=torch.long,
-                    device=field.device,
+                raise RuntimeError(
+                    "TaoFlowForge Stage 0 occupancy decoding produced no occupied voxels "
+                    f"(max_prob={max_prob:.4f}, eff_threshold={eff_threshold:.4f})"
                 )
         return coords
 

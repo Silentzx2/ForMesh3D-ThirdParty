@@ -9,7 +9,7 @@ import torch
 import trimesh
 from torch import nn
 
-from .attention import get_compute_dtype
+from .attention import _is_pre_ampere, get_compute_dtype
 from .dino import DinoConditioner, load_pretrained_dino_state_dict
 from .dit import RefineDiT
 from .flow import EulerFlowSampler
@@ -25,6 +25,8 @@ class Stage2Model(nn.Module):
     def __init__(self):
         super().__init__()
         self._dino_encoder = DinoConditioner(image_size=1_024)
+        dino_dtype = torch.bfloat16 if not _is_pre_ampere() else torch.float32
+        self._dino_encoder.to(dtype=dino_dtype)
         self.dit = RefineDiT()
         self.vertex_decoder = TopologyDecoder()
         self.register_buffer("_latent_norm_mean", torch.zeros(self.latent_dim))
@@ -35,12 +37,12 @@ class Stage2Model(nn.Module):
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode a ``(3,H,W)`` image tensor in ``[0,1]``."""
         device = next(self.parameters()).device
-        dtype = get_compute_dtype(device)
+        dtype = torch.bfloat16 if (device.type == "cuda" and not _is_pre_ampere(device)) else torch.float32
         image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
         with torch.autocast(
             device_type=device.type,
             dtype=dtype,
-            enabled=device.type == "cuda",
+            enabled=device.type == "cuda" and dtype == torch.bfloat16,
         ):
             features = self._dino_encoder(image_batch)
         return features.float()
@@ -117,12 +119,7 @@ class Stage2Model(nn.Module):
                 f"Stage 2 vertices must have shape (N,3), got {vertices_numpy.shape}"
             )
         if vertices_numpy.shape[0] == 0:
-            vertices_numpy = np.array([
-                [-0.2, -0.2, -0.2], [0.2, -0.2, -0.2],
-                [-0.2,  0.2, -0.2], [0.2,  0.2, -0.2],
-                [-0.2, -0.2,  0.2], [0.2, -0.2,  0.2],
-                [-0.2,  0.2,  0.2], [0.2,  0.2,  0.2],
-            ], dtype=np.float32)
+            raise ValueError("Stage 2 vertices are empty")
         if not np.isfinite(vertices_numpy).all():
             raise ValueError("Stage 2 vertices contain non-finite values")
 
@@ -192,12 +189,13 @@ class Stage2Model(nn.Module):
             vertex_coordinates=coordinates,
         )
         faces_numpy = np.asarray(faces, dtype=np.int64)
-        if faces_numpy.size == 0:
-            faces_numpy = np.zeros((0, 3), dtype=np.int64)
-        else:
-            faces_numpy = faces_numpy.reshape(-1, 3)
-            valid = faces_numpy.max(axis=1) < sorted_vertices.shape[0]
-            faces_numpy = faces_numpy[valid]
+        if faces_numpy.size == 0 or faces_numpy.shape[0] == 0:
+            raise RuntimeError("TaoFlowForge Stage 2 topology extraction produced 0 faces")
+        faces_numpy = faces_numpy.reshape(-1, 3)
+        valid = faces_numpy.max(axis=1) < sorted_vertices.shape[0]
+        faces_numpy = faces_numpy[valid]
+        if faces_numpy.shape[0] == 0:
+            raise RuntimeError("TaoFlowForge Stage 2 topology extraction produced 0 valid faces")
 
         mesh = trimesh.Trimesh(
             vertices=sorted_vertices.cpu().numpy(),

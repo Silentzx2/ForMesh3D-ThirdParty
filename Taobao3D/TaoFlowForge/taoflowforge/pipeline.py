@@ -480,12 +480,7 @@ class TaoFlowForgePipeline:
 
         if resume_stage < 2:
             if vertices is None or len(vertices) == 0:
-                vertices = torch.tensor([
-                    [-0.2, -0.2, -0.2], [0.2, -0.2, -0.2],
-                    [-0.2,  0.2, -0.2], [0.2,  0.2, -0.2],
-                    [-0.2, -0.2,  0.2], [0.2, -0.2,  0.2],
-                    [-0.2,  0.2,  0.2], [0.2,  0.2,  0.2],
-                ], dtype=torch.float32)
+                raise RuntimeError("TaoFlowForge Stage 1 produced no vertices for Stage 2")
             if self._offload_enabled and self._stage2 is None:
                 self.load_models((2,))
             started = time.perf_counter()
