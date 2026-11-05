@@ -108,6 +108,26 @@ def _sdpa_dense(q, k, v):
     if v.dtype != q.dtype:
         v = v.to(q.dtype)
 
+    if q.is_cuda and _is_pre_ampere(q.device):
+        try:
+            import xformers.ops as xops
+            q_xf = q.transpose(1, 2).contiguous()
+            k_xf = k.transpose(1, 2).contiguous()
+            v_xf = v.transpose(1, 2).contiguous()
+            out = xops.memory_efficient_attention(q_xf, k_xf, v_xf)
+            return out.transpose(1, 2).to(q.dtype).contiguous()
+        except Exception:
+            pass
+
+        # Query chunking fallback for pre-Ampere when sequence length is large (prevents 10GB MATH OOM)
+        if q.shape[2] > 2048:
+            chunk_size = 1024
+            chunks = []
+            for i in range(0, q.shape[2], chunk_size):
+                qc = q[:, :, i:i + chunk_size, :]
+                chunks.append(F.scaled_dot_product_attention(qc, k, v))
+            return torch.cat(chunks, dim=2).contiguous()
+
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
             try:
@@ -146,6 +166,26 @@ def _sdpa_masked(q, k, v, mask):
         k = k.to(q.dtype)
     if v.dtype != q.dtype:
         v = v.to(q.dtype)
+
+    if q.is_cuda and _is_pre_ampere(q.device):
+        try:
+            import xformers.ops as xops
+            q_xf = q.transpose(1, 2).contiguous()
+            k_xf = k.transpose(1, 2).contiguous()
+            v_xf = v.transpose(1, 2).contiguous()
+            out = xops.memory_efficient_attention(q_xf, k_xf, v_xf, attn_bias=mask)
+            return out.transpose(1, 2).to(q.dtype).contiguous()
+        except Exception:
+            pass
+
+        # Query chunking fallback for pre-Ampere when sequence length is large (prevents 10GB MATH OOM)
+        if q.shape[2] > 2048:
+            chunk_size = 1024
+            chunks = []
+            for i in range(0, q.shape[2], chunk_size):
+                qc = q[:, :, i:i + chunk_size, :]
+                chunks.append(F.scaled_dot_product_attention(qc, k, v, attn_mask=mask))
+            return torch.cat(chunks, dim=2).contiguous()
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
