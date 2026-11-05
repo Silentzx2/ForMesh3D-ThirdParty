@@ -166,9 +166,11 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             size = max(int(size * 1.05), 1)
             bbox = center[0] - size // 2, center[1] - size // 2, center[0] + size // 2, center[1] + size // 2
             output = output.crop(bbox)  # type: ignore
-        output = np.array(output).astype(np.float32) / 255
-        output = output[:, :, :3] * output[:, :, 3:4]
-        output = Image.fromarray((output * 255).astype(np.uint8))
+            output = np.array(output).astype(np.float32) / 255
+            output = output[:, :, :3] * output[:, :, 3:4]
+            output = Image.fromarray((output * 255).astype(np.uint8))
+        else:
+            output = input.convert('RGB')
         return output
         
     def get_cond(self, image: Union[torch.Tensor, list[Image.Image]], resolution: int, include_neg_cond: bool = True) -> dict:
@@ -249,12 +251,13 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         coords = torch.argwhere(pooled > 0)[:, [0, 2, 3, 4]].int()
 
         if coords.shape[0] == 0:
-            max_logit = float(pooled.max().item()) if pooled.numel() > 0 else -100.0
-            if max_logit > -15.0:
-                threshold = max(-5.0, max_logit - 1.0)
-                coords = torch.argwhere(pooled > threshold)[:, [0, 2, 3, 4]].int()
-                print(f"[TRELLIS.2] Warning: zero-logit threshold produced no occupied voxels (max_logit={max_logit:.4f}). Falling back to adaptive threshold {threshold:.4f} (count={coords.shape[0]}).")
+            flat = pooled.flatten()
+            k = max(64, min(int(0.01 * flat.numel()), 4096))
+            threshold = flat.topk(k).values.min()
+            coords = torch.argwhere(pooled >= threshold)[:, [0, 2, 3, 4]].int()
+            print(f"[TRELLIS.2] Warning: zero-logit threshold produced no occupied voxels (max_logit={pooled.max().item():.4f}). Falling back to top {coords.shape[0]} voxels (threshold={threshold.item():.4f}).")
             if coords.shape[0] == 0:
+                max_logit = float(pooled.max().item()) if pooled.numel() > 0 else -100.0
                 raise RuntimeError(
                     f"TRELLIS.2 sparse-structure decoding produced no occupied voxels (max_logit={max_logit:.4f}). "
                     "Image foreground could not be resolved."

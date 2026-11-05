@@ -146,16 +146,21 @@ class Trellis2TexturingPipeline(Pipeline):
                 self.rembg_model.cpu()
         output_np = np.array(output)
         alpha = output_np[:, :, 3]
-        bbox = np.argwhere(alpha > 0.8 * 255)
-        bbox = np.min(bbox[:, 1]), np.min(bbox[:, 0]), np.max(bbox[:, 1]), np.max(bbox[:, 0])
-        center = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
-        size = max(bbox[2] - bbox[0], bbox[3] - bbox[1])
-        size = int(size * 1)
-        bbox = center[0] - size // 2, center[1] - size // 2, center[0] + size // 2, center[1] + size // 2
-        output = output.crop(bbox)  # type: ignore
-        output = np.array(output).astype(np.float32) / 255
-        output = output[:, :, :3] * output[:, :, 3:4]
-        output = Image.fromarray((output * 255).astype(np.uint8))
+        bbox_coords = np.argwhere(alpha > 0.8 * 255)
+        if bbox_coords.shape[0] == 0:
+            bbox_coords = np.argwhere(alpha > 0.1 * 255)
+        if bbox_coords.shape[0] > 0:
+            bbox = np.min(bbox_coords[:, 1]), np.min(bbox_coords[:, 0]), np.max(bbox_coords[:, 1]), np.max(bbox_coords[:, 0])
+            center = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
+            size = max(bbox[2] - bbox[0], bbox[3] - bbox[1])
+            size = max(int(size * 1.05), 1)
+            bbox = center[0] - size // 2, center[1] - size // 2, center[0] + size // 2, center[1] + size // 2
+            output = output.crop(bbox)  # type: ignore
+            output = np.array(output).astype(np.float32) / 255
+            output = output[:, :, :3] * output[:, :, 3:4]
+            output = Image.fromarray((output * 255).astype(np.uint8))
+        else:
+            output = input.convert('RGB')
         return output
         
     def get_cond(self, image: Union[torch.Tensor, list[Image.Image]], resolution: int, include_neg_cond: bool = True) -> dict:
