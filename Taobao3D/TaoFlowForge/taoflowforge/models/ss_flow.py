@@ -133,14 +133,17 @@ def _attention(q, k, v, attention_mask=None):
     backend = os.environ.get("ATTN_BACKEND", "sdpa")
     if backend == "sdpa":
         orig_dtype = q.dtype
-        if q.is_cuda and q.dtype == torch.bfloat16:
-            try:
-                from .attention import _is_pre_ampere
+        try:
+            from .attention import _is_pre_ampere
 
-                if _is_pre_ampere(q.device):
-                    q, k, v = q.half(), k.half(), v.half()
-            except Exception:
-                pass
+            if q.is_cuda and _is_pre_ampere(q.device) and (orig_dtype == torch.bfloat16 or k.dtype == torch.bfloat16 or v.dtype == torch.bfloat16):
+                q, k, v = q.half(), k.half(), v.half()
+        except Exception:
+            pass
+        if k.dtype != q.dtype:
+            k = k.to(q.dtype)
+        if v.dtype != q.dtype:
+            v = v.to(q.dtype)
         output = F.scaled_dot_product_attention(
             q.permute(0, 2, 1, 3).contiguous(),
             k.permute(0, 2, 1, 3).contiguous(),

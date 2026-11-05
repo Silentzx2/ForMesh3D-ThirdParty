@@ -64,9 +64,12 @@ def _is_pre_ampere(device=None) -> bool:
 
 
 def get_compute_dtype(device=None) -> torch.dtype:
-    """Return float16 on pre-Ampere GPUs (sm < 80) for native tensor core acceleration, bfloat16 otherwise."""
-    if _is_pre_ampere(device):
-        return torch.float16
+    """Return bfloat16 on CUDA devices (or float32 if CPU).
+    Kernel-level attention backends (_sdpa_dense, _attention) handle pre-Ampere FP16
+    tiling internally, preserving 8-bit DiT exponent range to prevent FP16 NaN overflow.
+    """
+    if device is not None and getattr(device, "type", str(device)) == "cpu":
+        return torch.float32
     return torch.bfloat16
 
 
@@ -98,8 +101,12 @@ def _sdpa_dense(q, k, v):
     q = q.contiguous()
     k = k.contiguous()
     v = v.contiguous()
-    if q.is_cuda and q.dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+    if q.is_cuda and _is_pre_ampere(q.device) and (q.dtype == torch.bfloat16 or k.dtype == torch.bfloat16 or v.dtype == torch.bfloat16):
         return _sdpa_dense(q.half(), k.half(), v.half()).to(q.dtype).contiguous()
+    if k.dtype != q.dtype:
+        k = k.to(q.dtype)
+    if v.dtype != q.dtype:
+        v = v.to(q.dtype)
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:
@@ -133,8 +140,12 @@ def _sdpa_masked(q, k, v, mask):
     q = q.contiguous()
     k = k.contiguous()
     v = v.contiguous()
-    if q.is_cuda and q.dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+    if q.is_cuda and _is_pre_ampere(q.device) and (q.dtype == torch.bfloat16 or k.dtype == torch.bfloat16 or v.dtype == torch.bfloat16):
         return _sdpa_masked(q.half(), k.half(), v.half(), mask).to(q.dtype).contiguous()
+    if k.dtype != q.dtype:
+        k = k.to(q.dtype)
+    if v.dtype != q.dtype:
+        v = v.to(q.dtype)
 
     if _HAS_SDPA_KERNEL:
         if q.is_cuda:

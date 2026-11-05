@@ -90,7 +90,7 @@ class Stage2Model(nn.Module):
                 shape,
                 num_steps=num_steps,
                 device=device,
-                dtype=condition.dtype,
+                dtype=dtype,
                 model_kwargs=model_kwargs,
                 cfg_scale=cfg_scale,
                 unconditional_kwargs=unconditional_kwargs,

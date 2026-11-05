@@ -111,7 +111,7 @@ class Stage0Model(nn.Module):
                 shape,
                 num_steps=num_steps,
                 device=device,
-                dtype=condition.dtype,
+                dtype=dtype,
                 model_kwargs={"condition": condition},
                 cfg_scale=cfg_scale,
                 unconditional_kwargs=unconditional,
@@ -124,6 +124,7 @@ class Stage0Model(nn.Module):
 
     @torch.no_grad()
     def decode_logits(self, normalized_latent: torch.Tensor) -> torch.Tensor:
+        normalized_latent = torch.nan_to_num(normalized_latent, nan=0.0)
         latent = normalized_latent.float() * self._latent_std + self._latent_mean
         device = latent.device
         dtype = get_compute_dtype(device)
@@ -133,7 +134,7 @@ class Stage0Model(nn.Module):
             enabled=device.type == "cuda",
         ):
             logits = self.vae_decoder(latent)
-        return logits.float()
+        return torch.nan_to_num(logits.float(), nan=-10.0)
 
     @torch.no_grad()
     def decode_occupancy(self, normalized_latent: torch.Tensor) -> torch.Tensor:
@@ -151,7 +152,7 @@ class Stage0Model(nn.Module):
             raise ValueError(
                 "Expected occupancy with shape (1,1,resolution,resolution,resolution)"
             )
-        field = occupancy[0, 0]
+        field = torch.nan_to_num(occupancy[0, 0], nan=0.0, posinf=1.0, neginf=0.0)
         if field.shape[0] != field.shape[1] or field.shape[1] != field.shape[2]:
             raise ValueError(f"Expected a cubic occupancy field, got {tuple(field.shape)}")
 
