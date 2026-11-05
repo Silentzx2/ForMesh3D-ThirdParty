@@ -124,6 +124,8 @@ class Trellis2TexturingPipeline(Pipeline):
         Preprocess the input image.
         """
         # if has alpha channel, use it directly; otherwise, remove background
+        if input.mode in ('RGBA', 'LA') or (input.mode == 'P' and 'transparency' in getattr(input, 'info', {})):
+            input = input.convert('RGBA')
         has_alpha = False
         if input.mode == 'RGBA':
             alpha = np.array(input)[:, :, 3]

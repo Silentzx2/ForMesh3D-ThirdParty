@@ -123,9 +123,13 @@ def scaled_dot_product_attention(*args, **kwargs):
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
         _orig_dtype = q.dtype
-        if _orig_dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+        if _is_pre_ampere(q.device) and (_orig_dtype == torch.bfloat16 or k.dtype == torch.bfloat16 or v.dtype == torch.bfloat16):
             q, k, v = q.half(), k.half(), v.half()
-        out = xops.memory_efficient_attention(q, k, v)
+        if k.dtype != q.dtype:
+            k = k.to(q.dtype)
+        if v.dtype != q.dtype:
+            v = v.to(q.dtype)
+        out = xops.memory_efficient_attention(q.contiguous(), k.contiguous(), v.contiguous())
         if out.dtype != _orig_dtype:
             out = out.to(_orig_dtype)
     elif config.BACKEND == 'flash_attn':
@@ -155,8 +159,12 @@ def scaled_dot_product_attention(*args, **kwargs):
         elif num_all_args == 2:
             k, v = kv.unbind(dim=2)
         _orig_dtype = q.dtype
-        if _orig_dtype == torch.bfloat16 and _is_pre_ampere(q.device):
+        if _is_pre_ampere(q.device) and (_orig_dtype == torch.bfloat16 or k.dtype == torch.bfloat16 or v.dtype == torch.bfloat16):
             q, k, v = q.half(), k.half(), v.half()
+        if k.dtype != q.dtype:
+            k = k.to(q.dtype)
+        if v.dtype != q.dtype:
+            v = v.to(q.dtype)
         q = q.permute(0, 2, 1, 3).contiguous()
         k = k.permute(0, 2, 1, 3).contiguous()
         v = v.permute(0, 2, 1, 3).contiguous()
