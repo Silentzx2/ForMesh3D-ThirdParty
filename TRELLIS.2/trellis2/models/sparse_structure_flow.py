@@ -49,7 +49,8 @@ class TimestepEmbedder(nn.Module):
 
     def forward(self, t):
         t_freq = self.timestep_embedding(t, self.frequency_embedding_size)
-        t_emb = self.mlp(t_freq)
+        mlp_dtype = next(self.mlp.parameters()).dtype
+        t_emb = self.mlp(t_freq.to(mlp_dtype))
         return t_emb
 
 
@@ -227,9 +228,10 @@ class SparseStructureFlowModel(nn.Module):
 
         h = x.view(*x.shape[:2], -1).permute(0, 2, 1).contiguous()
 
-        h = self.input_layer(h)
+        in_dtype = next(self.input_layer.parameters()).dtype
+        h = self.input_layer(h.to(in_dtype))
         if self.pe_mode == "ape":
-            h = h + self.pos_emb[None]
+            h = h + self.pos_emb[None].to(h.dtype)
         t_emb = self.t_embedder(t)
         if self.share_mod:
             t_emb = self.adaLN_modulation(t_emb)
@@ -238,7 +240,8 @@ class SparseStructureFlowModel(nn.Module):
         cond = manual_cast(cond, self.dtype)
         for block in self.blocks:
             h = block(h, t_emb, cond, self.rope_phases)
-        h = manual_cast(h, x.dtype)
+        out_dtype = next(self.out_layer.parameters()).dtype
+        h = manual_cast(h, out_dtype)
         h = F.layer_norm(h, h.shape[-1:])
         h = self.out_layer(h)
 

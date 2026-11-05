@@ -179,6 +179,9 @@ class SLatFlowModel(nn.Module):
         if isinstance(cond, list):
             cond = sp.VarLenTensor.from_tensor_list(cond)
 
+        in_dtype = next(self.input_layer.parameters()).dtype
+        if x.feats.dtype != in_dtype:
+            x = x.replace(feats=x.feats.to(in_dtype))
         h = self.input_layer(x)
         h = manual_cast(h, self.dtype)
         t_emb = self.t_embedder(t)
@@ -193,7 +196,8 @@ class SLatFlowModel(nn.Module):
         for block in self.blocks:
             h = block(h, t_emb, cond)
 
-        h = manual_cast(h, x.dtype)
+        out_dtype = next(self.out_layer.parameters()).dtype
+        h = manual_cast(h, out_dtype)
         h = h.replace(F.layer_norm(h.feats, h.feats.shape[-1:]))
         h = self.out_layer(h)
         return h

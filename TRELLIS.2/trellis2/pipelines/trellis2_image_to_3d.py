@@ -409,14 +409,21 @@ class Trellis2ImageTo3DPipeline(Pipeline):
             List[Mesh]: The decoded meshes.
             List[SparseTensor]: The decoded substructures.
         """
-        self.models['shape_slat_decoder'].set_resolution(resolution)
+        decoder = self.models['shape_slat_decoder']
+        decoder.set_resolution(resolution)
         if self.low_vram:
-            self.models['shape_slat_decoder'].to(self.device)
-            self.models['shape_slat_decoder'].low_vram = True
-        ret = self.models['shape_slat_decoder'](slat, return_subs=True)
+            decoder.to(self.device)
+            decoder.low_vram = True
+        try:
+            decoder_dtype = next(decoder.parameters()).dtype
+            if slat.feats.dtype != decoder_dtype:
+                slat = slat.replace(feats=slat.feats.to(decoder_dtype))
+        except (StopIteration, AttributeError):
+            pass
+        ret = decoder(slat, return_subs=True)
         if self.low_vram:
-            self.models['shape_slat_decoder'].cpu()
-            self.models['shape_slat_decoder'].low_vram = False
+            decoder.cpu()
+            decoder.low_vram = False
         return ret
     
     def sample_tex_slat(

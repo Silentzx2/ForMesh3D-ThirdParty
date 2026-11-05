@@ -50,7 +50,8 @@ class DinoV2FeatureExtractor:
         else:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         
-        image = self.transform(image).cuda()
+        model_dtype = next(self.model.parameters()).dtype
+        image = self.transform(image).cuda().to(dtype=model_dtype)
         features = self.model(image, is_training=True)['x_prenorm']
         patchtokens = F.layer_norm(features, features.shape[-1:])
         return patchtokens
