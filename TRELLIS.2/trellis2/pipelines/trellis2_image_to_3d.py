@@ -248,8 +248,8 @@ class Trellis2ImageTo3DPipeline(Pipeline):
 
         if coords.shape[0] == 0:
             max_logit = float(pooled.max().item()) if pooled.numel() > 0 else -100.0
-            if max_logit > -5.0:
-                threshold = max(-1.0, max_logit - 0.5)
+            if max_logit > -15.0:
+                threshold = max(-5.0, max_logit - 1.0)
                 coords = torch.argwhere(pooled > threshold)[:, [0, 2, 3, 4]].int()
                 print(f"[TRELLIS.2] Warning: zero-logit threshold produced no occupied voxels (max_logit={max_logit:.4f}). Falling back to adaptive threshold {threshold:.4f} (count={coords.shape[0]}).")
             if coords.shape[0] == 0:

@@ -157,11 +157,11 @@ def scaled_dot_product_attention(*args, **kwargs):
         _orig_dtype = q.dtype
         if _orig_dtype == torch.bfloat16 and _is_pre_ampere(q.device):
             q, k, v = q.half(), k.half(), v.half()
-        q = q.permute(0, 2, 1, 3)   # [N, H, L, C]
-        k = k.permute(0, 2, 1, 3)   # [N, H, L, C]
-        v = v.permute(0, 2, 1, 3)   # [N, H, L, C]
+        q = q.permute(0, 2, 1, 3).contiguous()
+        k = k.permute(0, 2, 1, 3).contiguous()
+        v = v.permute(0, 2, 1, 3).contiguous()
         out = sdpa(q, k, v)         # [N, H, L, C]
-        out = out.permute(0, 2, 1, 3)   # [N, L, H, C]
+        out = out.permute(0, 2, 1, 3).contiguous()
         if out.dtype != _orig_dtype:
             out = out.to(_orig_dtype)
     elif config.BACKEND == 'naive':
