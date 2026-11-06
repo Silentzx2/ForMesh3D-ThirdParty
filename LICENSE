@@ -18,8 +18,8 @@ This document details the licensing terms, upstream repositories, copyright hold
 | `Taobao3D/` | TaoFlowForge | Flow-Matching Mesh | Alibaba Taobao 3D | [alibaba/Taobao3D](https://github.com/alibaba/Taobao3D) | **Apache 2.0** | Yes |
 | `TRELLIS/` | TRELLIS | Structured FlexiCubes | Microsoft Research | [microsoft/TRELLIS](https://github.com/microsoft/TRELLIS) | **MIT** | Yes |
 | `TRELLIS.2/` | TRELLIS.2 | Cascaded FlexiDualGrid | Microsoft Research | [microsoft/TRELLIS.2](https://github.com/microsoft/TRELLIS.2) | **MIT** | Yes |
+| `SkinTokens/` | SkinTokens | Unified Autoregressive Rigging | VAST AI Research | [VAST-AI-Research/SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) | **MIT** | Yes |
 | `TripoSG/` | TripoSG | Large Reconstruction | VAST AI Research | [VAST-AI-Research/TripoSG](https://github.com/VAST-AI-Research/TripoSG) | **Apache 2.0** | Yes |
-| `UniRig/` | UniRig | Bipedal Auto-Rigging | VAST AI Research | [VAST-AI-Research/UniRig](https://github.com/VAST-AI-Research/UniRig) | **Apache 2.0** | Yes |
 | `Unique3D/` | Unique3D | Multi-View Mesh Gen | Tsinghua & AiuniAI | [AiuniAI/Unique3D](https://github.com/AiuniAI/Unique3D) | **Apache 2.0** | Yes |
 | `ardy/` | ARDY | Text-to-Motion AI | NVIDIA Research | [nv-tlabs/ardy](https://github.com/nv-tlabs/ardy) | **NVIDIA Non-Commercial** | **NO (Research Only)** |
 
@@ -67,17 +67,22 @@ This document details the licensing terms, upstream repositories, copyright hold
 - **Files**: [`TRELLIS/LICENSE`](TRELLIS/LICENSE), [`TRELLIS.2/LICENSE`](TRELLIS.2/LICENSE)
 - **Summary**: Permissive MIT open-source license provided by Microsoft Corporation. Full commercial rights granted with attribution.
 
-### 9. TripoSG & UniRig (`TripoSG/`, `UniRig/`)
+### 9. TripoSG (`TripoSG/`)
 - **License**: Apache License 2.0
-- **Files**: [`TripoSG/LICENSE`](TripoSG/LICENSE), [`TripoSG/NOTICE`](TripoSG/NOTICE), [`UniRig/LICENSE`](UniRig/LICENSE)
+- **Files**: [`TripoSG/LICENSE`](TripoSG/LICENSE), [`TripoSG/NOTICE`](TripoSG/NOTICE)
 - **Summary**: Permissive Apache 2.0 license from VAST AI Research. Permits commercial usage.
 
-### 10. Unique3D (`Unique3D/`)
+### 10. SkinTokens (`SkinTokens/`)
+- **License**: MIT License
+- **File**: [`SkinTokens/LICENSE`](SkinTokens/LICENSE)
+- **Summary**: Permissive MIT open-source license provided by VAST AI Research. Full commercial rights granted with attribution.
+
+### 11. Unique3D (`Unique3D/`)
 - **License**: Apache License 2.0
 - **File**: [`Unique3D/LICENSE`](Unique3D/LICENSE)
 - **Summary**: Standard Apache 2.0 license by Tsinghua University / AiuniAI. Full commercial deployment permitted with attribution.
 
-### 11. ARDY (`ardy/`)
+### 12. ARDY (`ardy/`)
 - **License**: NVIDIA Source Code License
 - **File**: [`ardy/LICENSE`](ardy/LICENSE)
 - **Summary**: **NON-COMMERCIAL RESEARCH USE ONLY.** Developed by NVIDIA Research (nv-tlabs). Commercial use, monetization, and public commercial SaaS deployment are strictly prohibited without an explicit commercial license from NVIDIA.

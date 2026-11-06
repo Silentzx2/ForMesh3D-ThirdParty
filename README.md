@@ -23,7 +23,7 @@ The repository vendors 14 top-level model-source directories covering 17 adapter
 | `TRELLIS/` | TRELLIS | Structured FlexiCubes | Microsoft Research | **MIT** | `TRELLIS/` | Raw FlexiCubes image-to-3D |
 | `TRELLIS.2/` | TRELLIS.2 | Cascaded FlexiDualGrid | Microsoft Research | **MIT** | `TRELLIS.2/` | Adaptive top-k percentile voxel fallback & rembg guard; GPU Doctor target |
 | `TripoSG/` | TripoSG | Large Reconstruction | VAST AI Research | **Apache 2.0** | `TripoSG/` | Process-isolated patcher in `patcher/triposg/` |
-| `UniRig/` | UniRig | Bipedal Auto-Rigging | VAST AI Research | **Apache 2.0** | `UniRig/` | Bipedal skeletal armature generation |
+| `SkinTokens/` | SkinTokens | Unified Autoregressive Rigging | VAST AI Research | **MIT** | `SkinTokens/` | Compact learned skin tokens & unified autoregressive skeleton/skinning |
 | `Unique3D/` | Unique3D | Multi-View Mesh Gen | Tsinghua & AiuniAI | **Apache 2.0** | `Unique3D/` | **VERIFIED PASS / LOCKED** (54k faces, 1.0MB GLB, pure geometry) |
 | `ardy/` | ARDY | Text-to-Motion AI | NVIDIA Research | **NVIDIA Non-Commercial** | `ardy/` | CPU-only autoregressive motion synthesis |
 
@@ -115,7 +115,7 @@ git -C backend/thirdparty rev-parse HEAD
 
 ## 4. Legal & Commercial Advisory
 
-- **Open Source Models**: Models licensed under Apache 2.0 (e.g. `Taobao3D/TaoFlowForge`, `Unique3D`, `TripoSG`, `UniRig`, `Hi3D`, `Paint3D`) and MIT (e.g. `TRELLIS`, `TRELLIS.2`, `FastMesh`) permit commercial usage subject to license notices and attribution.
+- **Open Source Models**: Models licensed under Apache 2.0 (e.g. `Taobao3D/TaoFlowForge`, `Unique3D`, `TripoSG`, `Hi3D`, `Paint3D`) and MIT (e.g. `TRELLIS`, `TRELLIS.2`, `FastMesh`, `SkinTokens`) permit commercial usage subject to license notices and attribution.
 - **Community Models**: `Hunyuan3D-2.1` and `hunyuan3d-2` are subject to the Tencent Hunyuan Community License Agreement (commercial use permitted under 100M MAU).
 - **Non-Commercial / Research Models**: `Pixal3D` (CC BY-NC-SA 4.0) and `ardy` (NVIDIA Source Code License) are strictly restricted to non-commercial research. Commercial deployment or monetized SaaS hosting requires explicit permission from upstream rights holders.
 - **Weights & Checkpoints**: Checkpoint terms are managed independently by model authors on Hugging Face and ModelScope. Inspect individual model card terms before deployment.
