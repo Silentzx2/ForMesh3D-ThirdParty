@@ -21,8 +21,9 @@ class DinoV2FeatureExtractor:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
-    def to(self, device):
-        self.model.to(device)
+    def to(self, *args, **kwargs):
+        self.model.to(*args, **kwargs)
+        return self
 
     def cuda(self):
         self.model.cuda()
@@ -71,8 +72,9 @@ class DinoV3FeatureExtractor:
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
-    def to(self, device):
-        self.model.to(device)
+    def to(self, *args, **kwargs):
+        self.model.to(*args, **kwargs)
+        return self
 
     def cuda(self):
         self.model.cuda()

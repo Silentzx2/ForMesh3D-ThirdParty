@@ -519,12 +519,12 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             self.naf_model.eval()
             self.naf_model.requires_grad_(False)
         
-    def to(self, device):
-        super().to(device)
-        self.model.to(device)
-        self.proj_grid.to(device)
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.model.to(*args, **kwargs)
+        self.proj_grid.to(*args, **kwargs)
         if self.naf_model is not None:
-            self.naf_model.to(device)
+            self.naf_model.to(*args, **kwargs)
         return self
 
     def cuda(self):
@@ -926,12 +926,12 @@ class DinoV3VaeProjFeatureExtractor(nn.Module):
         vae.to(device)
         self._vae = vae
     
-    def to(self, device):
-        super().to(device)
-        self.dino_model.to(device)
-        self.proj_grid.to(device)
+    def to(self, *args, **kwargs):
+        super().to(*args, **kwargs)
+        self.dino_model.to(*args, **kwargs)
+        self.proj_grid.to(*args, **kwargs)
         if self._vae is not None:
-            self._vae.to(device)
+            self._vae.to(*args, **kwargs)
         return self
     
     def cuda(self):
