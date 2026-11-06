@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -9,13 +10,15 @@ from typing import Literal
 
 OffloadMode = Literal["auto", "on", "off"]
 
+_USE_OFFICIAL_STEPS = os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "").lower() in ("1", "true")
+
 
 @dataclass(frozen=True)
 class Stage0Config:
     """Stage 0 occupancy generation settings."""
 
     checkpoint: Path
-    num_steps: int = 50
+    num_steps: int = 50 if _USE_OFFICIAL_STEPS else int(os.environ.get("TAOFLOWFORGE_STAGE0_STEPS", "5"))
     cfg_scale: float = 7.5
     t_shift: float = 2.718
     occupancy_threshold: float = 0.5
@@ -30,7 +33,7 @@ class Stage1Config:
     """Stage 1 raw-space vertex upsampling settings."""
 
     checkpoint: Path
-    num_steps: int = 30
+    num_steps: int = 30 if _USE_OFFICIAL_STEPS else int(os.environ.get("TAOFLOWFORGE_STAGE1_STEPS", "5"))
     cfg_scale: float = 7.0
     vc_cfg_scale: float = 1.0
     t_shift: float = 1.0
@@ -43,7 +46,7 @@ class Stage2Config:
     """Stage 2 feature-space topology generation settings."""
 
     checkpoint: Path
-    num_steps: int = 50
+    num_steps: int = 50 if _USE_OFFICIAL_STEPS else int(os.environ.get("TAOFLOWFORGE_STAGE2_STEPS", "5"))
     cfg_scale: float = 3.0
     t_shift: float = 1.0
     edge_threshold: float = 0.5

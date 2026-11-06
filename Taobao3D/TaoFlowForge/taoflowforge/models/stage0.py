@@ -50,11 +50,19 @@ class Stage0Model(nn.Module):
         )
         self.flow_sampler = EulerFlowSampler(prediction_type="velocity")
 
+    def offload(self) -> None:
+        """Evict all Stage 0 parameters to host memory."""
+        self.to("cpu")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     @torch.no_grad()
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode one ``(3,H,W)`` RGB image in ``[0,1]`` to patch tokens."""
-        device = next(self.parameters()).device
+        device = next(self.denoiser.parameters()).device
         dtype = torch.bfloat16 if (device.type == "cuda" and not _is_pre_ampere(device)) else torch.float32
+        if next(self._dino_encoder.parameters()).device != device:
+            self._dino_encoder.to(device=device, dtype=dtype)
         image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
         with torch.autocast(
             device_type=device.type,
@@ -235,7 +243,15 @@ class Stage0Model(nn.Module):
         max_cells: int | None = 15_000,
         show_progress: bool = True,
     ) -> torch.Tensor:
+        target_device = next(self.denoiser.parameters()).device
+        is_pre_ampere_gpu = target_device.type == "cuda" and _is_pre_ampere(target_device)
+
         condition = self.encode_image(image)
+        if is_pre_ampere_gpu:
+            self._dino_encoder.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         latent = self.sample_latent(
             condition,
             num_steps=num_steps,

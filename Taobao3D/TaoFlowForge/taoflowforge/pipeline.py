@@ -223,11 +223,17 @@ class TaoFlowForgePipeline:
         if not self._offload_enabled:
             return
         if stage != 0 and self._stage0 is not None:
-            self._stage0.to("cpu")
+            if hasattr(self._stage0, "offload"):
+                self._stage0.offload()
+            else:
+                self._stage0.to("cpu")
         if stage != 1 and self._stage1 is not None:
             self._stage1.offload()
         if stage != 2 and self._stage2 is not None:
-            self._stage2.to("cpu")
+            if hasattr(self._stage2, "offload"):
+                self._stage2.offload()
+            else:
+                self._stage2.to("cpu")
         if stage == 0 and self._stage0 is not None:
             self._stage0.to(self.device)
         elif stage == 1 and self._stage1 is not None:
@@ -430,7 +436,9 @@ class TaoFlowForgePipeline:
             started = time.perf_counter()
             coordinates = self._infer_stage0(image_tensor, show_progress)
             if self._offload_enabled:
-                if self._stage0 is not None:
+                if self._stage0 is not None and hasattr(self._stage0, "offload"):
+                    self._stage0.offload()
+                elif self._stage0 is not None:
                     self._stage0.to("cpu")
                 self._stage0 = None
                 gc.collect()
@@ -492,7 +500,9 @@ class TaoFlowForgePipeline:
             started = time.perf_counter()
             mesh = self._infer_stage2(image_tensor, vertices, show_progress)
             if self._offload_enabled:
-                if self._stage2 is not None:
+                if self._stage2 is not None and hasattr(self._stage2, "offload"):
+                    self._stage2.offload()
+                elif self._stage2 is not None:
                     self._stage2.to("cpu")
                 self._stage2 = None
                 gc.collect()

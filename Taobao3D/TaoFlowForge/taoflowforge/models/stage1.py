@@ -41,13 +41,15 @@ class Stage1Model(nn.Module):
     @torch.no_grad()
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode one ``(3,H,W)`` RGB image in ``[0,1]``."""
-        device = next(self.dino_encoder.parameters()).device
-        dtype = torch.bfloat16 if (device.type == "cuda" and not _is_pre_ampere(device)) else torch.float32
-        image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
+        target_device = getattr(self, "_target_device", next(self.dino_encoder.parameters()).device)
+        dtype = torch.bfloat16 if (target_device.type == "cuda" and not _is_pre_ampere(target_device)) else torch.float32
+        if next(self.dino_encoder.parameters()).device != target_device:
+            self.dino_encoder.to(device=target_device, dtype=dtype)
+        image_batch = image.unsqueeze(0).to(device=target_device, dtype=torch.float32)
         with torch.autocast(
-            device_type=device.type,
+            device_type=target_device.type,
             dtype=dtype,
-            enabled=device.type == "cuda" and dtype == torch.bfloat16,
+            enabled=target_device.type == "cuda" and dtype == torch.bfloat16,
         ):
             condition = self.dino_encoder(image_batch)
         return condition.float()

@@ -33,16 +33,26 @@ class Stage2Model(nn.Module):
         self.register_buffer("_latent_norm_std", torch.ones(self.latent_dim))
         self.flow_sampler = EulerFlowSampler(prediction_type="velocity")
 
+    def offload(self) -> None:
+        """Evict all Stage 2 parameters to host memory."""
+        self._dino_encoder.to("cpu")
+        self.dit.to("cpu")
+        self.vertex_decoder.to("cpu")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
     @torch.no_grad()
     def encode_image(self, image: torch.Tensor) -> torch.Tensor:
         """Encode a ``(3,H,W)`` image tensor in ``[0,1]``."""
-        device = next(self.parameters()).device
-        dtype = torch.bfloat16 if (device.type == "cuda" and not _is_pre_ampere(device)) else torch.float32
-        image_batch = image.unsqueeze(0).to(device=device, dtype=torch.float32)
+        target_device = next(self.dit.parameters()).device
+        dtype = torch.bfloat16 if (target_device.type == "cuda" and not _is_pre_ampere(target_device)) else torch.float32
+        if next(self._dino_encoder.parameters()).device != target_device:
+            self._dino_encoder.to(device=target_device, dtype=dtype)
+        image_batch = image.unsqueeze(0).to(device=target_device, dtype=torch.float32)
         with torch.autocast(
-            device_type=device.type,
+            device_type=target_device.type,
             dtype=dtype,
-            enabled=device.type == "cuda" and dtype == torch.bfloat16,
+            enabled=target_device.type == "cuda" and dtype == torch.bfloat16,
         ):
             features = self._dino_encoder(image_batch)
         return features.float()
