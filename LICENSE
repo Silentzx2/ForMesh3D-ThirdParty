@@ -1,6 +1,6 @@
 # Upstream Model Licenses & Legal Directory
 
-This document details the licensing terms, upstream repositories, copyright holders, and usage conditions for all 14 third-party model source trees vendored in `backend/thirdparty/`.
+This document details the licensing terms, upstream repositories, copyright holders, and usage conditions for all 13 third-party model source trees vendored in `backend/thirdparty/`.
 
 ---
 
@@ -9,7 +9,6 @@ This document details the licensing terms, upstream repositories, copyright hold
 | Subdirectory | Model Name | Primary Task | Upstream Authors | Upstream Repository | License Type | Commercial Usable? |
 |---|---|---|---|---|:---:|:---:|
 | `FastMesh/` | FastMesh V1K / V4K | Quad Retopology | FastMesh Contributors | [FastMesh](https://github.com/Silentzx2/ForMesh3D-ThirdParty/tree/main/FastMesh) | **MIT** | Yes |
-| `Hi3D/` | Hi3D v1.0 | Geometry Refinement | Hi3D Team | [hi3d-official/Hi3Dv1.0](https://github.com/hi3d-official/Hi3Dv1.0) | **Apache 2.0** | Yes |
 | `Hunyuan3D-2.1/` | Hunyuan3D-2.1 | Shape & PBR Texture | Tencent Hunyuan | [Tencent-Hunyuan/Hunyuan3D-2.1](https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1) | **Tencent Community** | Conditional (MAU limits) |
 | `hunyuan3d-2/` | Hunyuan3D DiT Mini | Fast Shape Gen | Tencent Hunyuan | [Tencent-Hunyuan/Hunyuan3D-2](https://github.com/Tencent-Hunyuan/Hunyuan3D-2) | **Tencent Community** | Conditional (MAU limits) |
 | `Paint3D/` | Paint3D | PBR Mesh Texture | OpenTexture Team | [OpenTexture/Paint3D](https://github.com/OpenTexture/Paint3D) | **Apache 2.0** | Yes |
@@ -32,57 +31,52 @@ This document details the licensing terms, upstream repositories, copyright hold
 - **File**: [`FastMesh/LICENSE`](FastMesh/LICENSE)
 - **Summary**: Permissive open-source license. Allows free use, copying, modification, merging, publishing, distribution, and commercial use with attribution.
 
-### 2. Hi3D (`Hi3D/`)
-- **License**: Apache License 2.0
-- **File**: [`Hi3D/LICENSE`](Hi3D/LICENSE), [`Hi3D/NOTICE`](Hi3D/NOTICE), [`Hi3D/THIRD_PARTY_LICENSES.md`](Hi3D/THIRD_PARTY_LICENSES.md)
-- **Summary**: Permissive open-source license with explicit patent grants and trademark limitations. Permits commercial use with attribution.
-
-### 3. Tencent Hunyuan3D-2.1 & Hunyuan3D-2 (`Hunyuan3D-2.1/`, `hunyuan3d-2/`)
+### 2. Tencent Hunyuan3D-2.1 & Hunyuan3D-2 (`Hunyuan3D-2.1/`, `hunyuan3d-2/`)
 - **License**: Tencent Hunyuan Community License Agreement
 - **Files**: [`Hunyuan3D-2.1/LICENSE`](Hunyuan3D-2.1/LICENSE), [`Hunyuan3D-2.1/Notice.txt`](Hunyuan3D-2.1/Notice.txt), [`hunyuan3d-2/LICENSE`](hunyuan3d-2/LICENSE)
 - **Summary**: Tencent grants a non-exclusive, worldwide, non-transferable, royalty-free copyright license. Commercial use is permitted provided your service/product has under 100 million Monthly Active Users (MAU). If MAU exceeds 100M, a commercial license must be requested from Tencent. Includes standard attribution clauses ("Built on Tencent Hunyuan3D").
 
-### 4. Paint3D (`Paint3D/`)
+### 3. Paint3D (`Paint3D/`)
 - **License**: Apache License 2.0
 - **File**: [`Paint3D/LICENSE`](Paint3D/LICENSE)
 - **Summary**: Standard Apache 2.0 permissive terms. Free for commercial and non-commercial application.
 
-### 5. PartUV (`PartUV/`)
+### 4. PartUV (`PartUV/`)
 - **License**: Apache License 2.0
 - **File**: [`PartUV/LICENSE`](PartUV/LICENSE)
 - **Summary**: Standard Apache 2.0 terms. Note that PartUV vendors Eigen and JSON under their respective open-source licenses (`PartUV/extern/`).
 
-### 6. Pixal3D (`Pixal3D/`)
+### 5. Pixal3D (`Pixal3D/`)
 - **License**: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
 - **Files**: [`Pixal3D/LICENSE`](Pixal3D/LICENSE), [`Pixal3D/NOTICE`](Pixal3D/NOTICE)
 - **Summary**: **RESEARCH AND NON-COMMERCIAL USE ONLY.** You may not use Pixal3D code or derivative models for commercial purposes without a separate license from Tencent ARC.
 
-### 7. Taobao3D / TaoFlowForge (`Taobao3D/`)
+### 6. Taobao3D / TaoFlowForge (`Taobao3D/`)
 - **License**: Apache License 2.0
 - **File**: [`Taobao3D/LICENSE`](Taobao3D/LICENSE)
 - **Summary**: Standard Apache 2.0 license provided by Alibaba. Permits commercial deployment, modification, and distribution.
 
-### 8. Microsoft TRELLIS & TRELLIS.2 (`TRELLIS/`, `TRELLIS.2/`)
+### 7. Microsoft TRELLIS & TRELLIS.2 (`TRELLIS/`, `TRELLIS.2/`)
 - **License**: MIT License
 - **Files**: [`TRELLIS/LICENSE`](TRELLIS/LICENSE), [`TRELLIS.2/LICENSE`](TRELLIS.2/LICENSE)
 - **Summary**: Permissive MIT open-source license provided by Microsoft Corporation. Full commercial rights granted with attribution.
 
-### 9. TripoSG (`TripoSG/`)
+### 8. TripoSG (`TripoSG/`)
 - **License**: Apache License 2.0
 - **Files**: [`TripoSG/LICENSE`](TripoSG/LICENSE), [`TripoSG/NOTICE`](TripoSG/NOTICE)
 - **Summary**: Permissive Apache 2.0 license from VAST AI Research. Permits commercial usage.
 
-### 10. SkinTokens (`SkinTokens/`)
+### 9. SkinTokens (`SkinTokens/`)
 - **License**: MIT License
 - **File**: [`SkinTokens/LICENSE`](SkinTokens/LICENSE)
 - **Summary**: Permissive MIT open-source license provided by VAST AI Research. Full commercial rights granted with attribution.
 
-### 11. Unique3D (`Unique3D/`)
+### 10. Unique3D (`Unique3D/`)
 - **License**: Apache License 2.0
 - **File**: [`Unique3D/LICENSE`](Unique3D/LICENSE)
 - **Summary**: Standard Apache 2.0 license by Tsinghua University / AiuniAI. Full commercial deployment permitted with attribution.
 
-### 12. ARDY (`ardy/`)
+### 11. ARDY (`ardy/`)
 - **License**: NVIDIA Source Code License
 - **File**: [`ardy/LICENSE`](ardy/LICENSE)
 - **Summary**: **NON-COMMERCIAL RESEARCH USE ONLY.** Developed by NVIDIA Research (nv-tlabs). Commercial use, monetization, and public commercial SaaS deployment are strictly prohibited without an explicit commercial license from NVIDIA.
