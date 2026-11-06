@@ -430,6 +430,8 @@ class TaoFlowForgePipeline:
             started = time.perf_counter()
             coordinates = self._infer_stage0(image_tensor, show_progress)
             if self._offload_enabled:
+                if self._stage0 is not None:
+                    self._stage0.to("cpu")
                 self._stage0 = None
                 gc.collect()
                 if torch.cuda.is_available():
@@ -458,6 +460,10 @@ class TaoFlowForgePipeline:
             started = time.perf_counter()
             vertices = self._infer_stage1(image_tensor, coordinates, show_progress)
             if self._offload_enabled:
+                if self._stage1 is not None and hasattr(self._stage1, "offload"):
+                    self._stage1.offload()
+                elif self._stage1 is not None:
+                    self._stage1.to("cpu")
                 self._stage1 = None
                 gc.collect()
                 if torch.cuda.is_available():
@@ -486,6 +492,8 @@ class TaoFlowForgePipeline:
             started = time.perf_counter()
             mesh = self._infer_stage2(image_tensor, vertices, show_progress)
             if self._offload_enabled:
+                if self._stage2 is not None:
+                    self._stage2.to("cpu")
                 self._stage2 = None
                 gc.collect()
                 if torch.cuda.is_available():

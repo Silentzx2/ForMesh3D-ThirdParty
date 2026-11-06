@@ -271,6 +271,7 @@ class Stage1Model(nn.Module):
         finally:
             progress.close()
             if offload_after and self._target_device.type == "cuda":
+                self.dino_encoder.to("cpu")
                 for expert in self.denoisers:
                     expert.to("cpu")
                 self._active_expert = None
@@ -315,6 +316,10 @@ class Stage1Model(nn.Module):
     ) -> torch.Tensor:
         """Refine, cap, normalize, and snap vertices for Stage 2."""
         condition = self.encode_image(image)
+        if _is_pre_ampere(self._target_device):
+            self.dino_encoder.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         coordinates = self.refine_coordinates(
             condition,
             seed_coordinates,

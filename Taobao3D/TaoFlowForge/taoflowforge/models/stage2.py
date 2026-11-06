@@ -227,12 +227,20 @@ class Stage2Model(nn.Module):
         show_progress: bool = True,
     ) -> trimesh.Trimesh:
         """Generate topology for a Stage 1 vertex cloud."""
+        target_device = next(self.parameters()).device
+        is_pre_ampere_gpu = target_device.type == "cuda" and _is_pre_ampere(target_device)
+
         condition = self.encode_image(image)
+        if is_pre_ampere_gpu:
+            self._dino_encoder.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         sorted_vertices, voxel_coordinates = self.prepare_vertices(
             vertices,
             voxel_resolution,
         )
-        voxel_coordinates = voxel_coordinates.to(condition.device)
+        voxel_coordinates = voxel_coordinates.to(target_device)
         normalized_latent = self.sample_latent(
             condition,
             voxel_coordinates,
@@ -244,13 +252,25 @@ class Stage2Model(nn.Module):
         )
         denormalized_latent = self.denormalize_latent(normalized_latent)
         del normalized_latent
-        if condition.device.type == "cuda":
+        if is_pre_ampere_gpu:
+            self.dit.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            if next(self.vertex_decoder.parameters()).device.type == "cpu":
+                self.vertex_decoder.to(target_device)
+        elif target_device.type == "cuda":
             torch.cuda.empty_cache()
-        return self.decode_mesh(
+
+        mesh = self.decode_mesh(
             denormalized_latent,
             sorted_vertices,
             edge_threshold=edge_threshold,
         )
+        if is_pre_ampere_gpu:
+            self.vertex_decoder.to("cpu")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        return mesh
 
 
 _DINO_LAYER_SOURCE = "_dino_encoder.model.layer."
