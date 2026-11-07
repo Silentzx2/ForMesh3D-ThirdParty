@@ -511,6 +511,7 @@ class DinoV3ProjFeatureExtractor(nn.Module):
     def _load_naf(self):
         """Lazy-load pretrained NAF model."""
         if self.naf_model is None:
+            import sys
             import torch.hub
             device = next(self.model.parameters()).device
             self.naf_model = torch.hub.load(
@@ -518,6 +519,11 @@ class DinoV3ProjFeatureExtractor(nn.Module):
             )
             self.naf_model.eval()
             self.naf_model.requires_grad_(False)
+            # Ensure NAF uses modern na2d attention
+            for mod_name, mod in list(sys.modules.items()):
+                if mod and ("attentions" in mod_name or "src.layers" in mod_name):
+                    if hasattr(mod, "NATTEN_RECENT"):
+                        mod.NATTEN_RECENT = True
         
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
