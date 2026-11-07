@@ -172,7 +172,7 @@ class Stage0Model(nn.Module):
 
         occupied = field >= eff_threshold
         if not occupied.any():
-            if max_prob > 0.0:
+            if max_prob > 0.05:
                 flat = field.flatten()
                 k = min(64, max(1, flat.numel()))
                 top_thresh = flat.topk(k).values.min()

@@ -64,11 +64,13 @@ def _is_pre_ampere(device=None) -> bool:
 
 
 def get_compute_dtype(device=None) -> torch.dtype:
-    """Return bfloat16 on modern CUDA devices, float32 on CPU, and float16 on pre-Ampere GPUs."""
+    """Return bfloat16 on modern CUDA devices, and float32 on CPU or pre-Ampere GPUs.
+    Preserves 8-bit DiT exponent range to prevent FP16 NaN overflow during Euler flow matching.
+    """
     if device is not None and getattr(device, "type", str(device)) == "cpu":
         return torch.float32
     if _is_pre_ampere(device):
-        return torch.float16
+        return torch.float32
     return torch.bfloat16
 
 

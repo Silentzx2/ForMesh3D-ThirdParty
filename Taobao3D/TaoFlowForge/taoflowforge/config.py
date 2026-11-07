@@ -10,7 +10,8 @@ from typing import Literal
 
 OffloadMode = Literal["auto", "on", "off"]
 
-_USE_OFFICIAL_STEPS = os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "").lower() in ("1", "true")
+_FAST_STEPS = os.environ.get("TAOFLOWFORGE_FAST_STEPS", "").lower() in ("1", "true")
+_USE_OFFICIAL_STEPS = not _FAST_STEPS and os.environ.get("TAOFLOWFORGE_USE_OFFICIAL_STEPS", "1").lower() in ("1", "true")
 
 
 @dataclass(frozen=True)
