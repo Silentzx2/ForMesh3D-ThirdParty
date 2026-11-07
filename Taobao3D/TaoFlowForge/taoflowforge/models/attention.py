@@ -120,6 +120,14 @@ def _sdpa_dense(q, k, v):
         except Exception:
             pass
 
+        # Try hardware Cutlass memory-efficient attention first for float16 (sm < 80 Tensor Cores)
+        if _HAS_SDPA_KERNEL and q.dtype == torch.float16:
+            try:
+                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
+                    return F.scaled_dot_product_attention(q, k, v).contiguous()
+            except RuntimeError:
+                pass
+
         # Query chunking fallback for pre-Ampere when sequence length is large (prevents 10GB MATH OOM)
         if q.shape[2] > 2048:
             chunk_size = 1024
@@ -179,6 +187,14 @@ def _sdpa_masked(q, k, v, mask):
         except Exception:
             pass
 
+        # Try hardware Cutlass memory-efficient attention first for float16 (sm < 80 Tensor Cores)
+        if _HAS_SDPA_KERNEL and q.dtype == torch.float16:
+            try:
+                with sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]):
+                    return F.scaled_dot_product_attention(q, k, v, attn_mask=mask).contiguous()
+            except RuntimeError:
+                pass
+
         # Query chunking fallback for pre-Ampere when sequence length is large (prevents 10GB MATH OOM)
         if q.shape[2] > 2048:
             chunk_size = 1024
@@ -214,7 +230,8 @@ def _sdpa_masked(q, k, v, mask):
 def flash_attn_qkv(q, k, v):
     """Dense attention with ``(batch, heads, tokens, channels)`` tensors."""
     original_dtype = q.dtype
-    compute_dtype = get_compute_dtype(q.device)
+    is_pre_amp = _is_pre_ampere(q.device)
+    compute_dtype = torch.float16 if (is_pre_amp and original_dtype == torch.float16) else get_compute_dtype(q.device)
     if ATTENTION_BACKEND in {"fa3", "fa2"}:
         qf = q.transpose(1, 2).to(compute_dtype).contiguous()
         kf = k.transpose(1, 2).to(compute_dtype).contiguous()
@@ -238,7 +255,8 @@ def flash_attn_varlen_qkv(q, k, v, valid_mask):
     batch, heads, tokens, channels = q.shape
     original_dtype = q.dtype
     device = q.device
-    compute_dtype = get_compute_dtype(device)
+    is_pre_amp = _is_pre_ampere(device)
+    compute_dtype = torch.float16 if (is_pre_amp and original_dtype == torch.float16) else get_compute_dtype(device)
     valid_mask = valid_mask.to(device=device, dtype=torch.bool)
     if valid_mask.shape != (batch, tokens):
         raise ValueError(
@@ -305,7 +323,8 @@ def flash_attn_varlen_cross_qkv(q, k, v, valid_key_mask):
     key_tokens = k.shape[2]
     original_dtype = q.dtype
     device = q.device
-    compute_dtype = get_compute_dtype(device)
+    is_pre_amp = _is_pre_ampere(device)
+    compute_dtype = torch.float16 if (is_pre_amp and original_dtype == torch.float16) else get_compute_dtype(device)
     valid_key_mask = valid_key_mask.to(device=device, dtype=torch.bool)
     if valid_key_mask.shape != (batch, key_tokens):
         raise ValueError(
