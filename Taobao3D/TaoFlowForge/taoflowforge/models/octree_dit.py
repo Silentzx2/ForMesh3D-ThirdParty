@@ -8,7 +8,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from .attention import flash_attn_qkv
+from .attention import flash_attn_qkv, _is_pre_ampere
 
 
 def cell_centers(coordinates: torch.Tensor, level: int) -> torch.Tensor:
@@ -21,21 +21,31 @@ def build_octree_rope(
     positions: torch.Tensor,
     head_dim: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Build the checkpoint's normalized-coordinate 3D RoPE tables."""
+    """Build the checkpoint's normalized-coordinate 3D RoPE tables.
+
+    On pre-Ampere GPUs (sm < 80) with float16 positions, compute RoPE in
+    float16 so the attention path stays on Tensor Cores instead of falling
+    back to float32 CUDA cores. Modern GPUs (sm >= 80) keep float32 RoPE.
+    """
     dimensions_per_axis = (head_dim // 3) // 2 * 2
     half_dim = dimensions_per_axis // 2
+    rope_dtype = (
+        torch.float16
+        if positions.is_cuda and _is_pre_ampere(positions.device) and positions.dtype == torch.float16
+        else torch.float32
+    )
     inverse_frequency = 1.0 / (
         10_000.0
         ** (
             torch.arange(
                 half_dim,
                 device=positions.device,
-                dtype=torch.float32,
+                dtype=rope_dtype,
             )
             / half_dim
         )
     )
-    theta = positions.float().unsqueeze(-1) * inverse_frequency
+    theta = positions.to(dtype=rope_dtype).unsqueeze(-1) * inverse_frequency
     theta = theta * math.pi
     cosine = theta.cos()
     sine = theta.sin()
@@ -49,9 +59,15 @@ def apply_octree_rope(
     cosine: torch.Tensor,
     sine: torch.Tensor,
 ) -> torch.Tensor:
-    """Apply cached 3D RoPE with the legacy float32 arithmetic order."""
+    """Apply cached 3D RoPE with the legacy float32 arithmetic order.
+
+    On pre-Ampere GPUs (sm < 80) with float16 tensors, keep the rotation in
+    float16 so attention stays on Tensor Cores. Modern GPUs (sm >= 80) keep
+    float32 RoPE arithmetic unchanged.
+    """
     rope_dim = cosine.shape[-1]
-    rotated_input = tensor[..., :rope_dim].float()
+    _keep_fp16 = tensor.is_cuda and _is_pre_ampere(tensor.device) and tensor.dtype == torch.float16
+    rotated_input = tensor[..., :rope_dim] if _keep_fp16 else tensor[..., :rope_dim].float()
     first, second = rotated_input.unflatten(-1, (3, 2, -1)).unbind(-2)
     swapped = torch.cat([second, first], dim=-1).flatten(-2)
     result = (rotated_input * cosine + swapped * sine).to(tensor.dtype)
@@ -69,7 +85,8 @@ class MultiHeadRMSNorm(nn.Module):
         self.gamma = nn.Parameter(torch.ones(num_heads, head_dim))
 
     def forward(self, tensor: torch.Tensor) -> torch.Tensor:
-        normalized = F.normalize(tensor.float(), dim=-1)
+        _keep_fp16 = tensor.is_cuda and _is_pre_ampere(tensor.device) and tensor.dtype == torch.float16
+        normalized = F.normalize(tensor if _keep_fp16 else tensor.float(), dim=-1)
         return (normalized * self.gamma * self.scale).to(tensor.dtype)
 
 

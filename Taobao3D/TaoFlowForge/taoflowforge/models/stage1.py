@@ -220,7 +220,7 @@ class Stage1Model(nn.Module):
                         f"[Stage 1/3] {2**level}->{2 ** (level + 1)}"
                     )
                     expert = self._activate_expert(level)
-                    positions = cell_centers(coordinates, level).unsqueeze(0)
+                    positions = cell_centers(coordinates, level).unsqueeze(0).to(device=device, dtype=dtype)
                     expected_shape = (1, coordinates.shape[0], 8)
                     if initial_states is not None and level in initial_states:
                         state = initial_states[level].to(
