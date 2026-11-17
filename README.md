@@ -55,7 +55,7 @@ flowchart TD
     end
 
     subgraph OutputBoundary ["Persistence & Artifact Boundary"]
-        MASTER["Immutable Master Checkpoint<br/>master/source.glb (SHA-256)"]:::output
+        MASTER["Immutable Master Checkpoint<br/>mesh/mesh.glb (SHA-256)"]:::output
         POST["Production Postprocess Pipeline<br/>(LODs, UVs, CoACD, PBR Bake)"]:::output
     end
 
