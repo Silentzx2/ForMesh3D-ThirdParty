@@ -81,10 +81,18 @@ def weld_vertices(mesh: trimesh.Trimesh, epsilon: float = 1e-5, keep: str = "fir
 
     m_out = trimesh.Trimesh(vertices=V_new, faces=F_new, process=False)
     # Clean any isolated vertices introduced by degenerate removal
-    m_out.remove_unreferenced_vertices()
+    if hasattr(m_out, "remove_unreferenced_vertices"):
+        m_out.remove_unreferenced_vertices()
     # Optional: also remove duplicate/degenerate faces just in case
-    m_out.remove_duplicate_faces()
-    m_out.remove_degenerate_faces()
+    if hasattr(m_out, "remove_duplicate_faces"):
+        m_out.remove_duplicate_faces()
+    elif hasattr(m_out, "update_faces") and hasattr(m_out, "unique_faces"):
+        m_out.update_faces(m_out.unique_faces())
+
+    if hasattr(m_out, "remove_degenerate_faces"):
+        m_out.remove_degenerate_faces()
+    elif hasattr(m_out, "update_faces") and hasattr(m_out, "nondegenerate_faces"):
+        m_out.update_faces(m_out.nondegenerate_faces())
     return m_out
 
 def find_inputs(path: str):
