@@ -28,8 +28,21 @@ def _pkg_file(rel: str) -> Path:
 class PFInferenceModel:
     def __init__(self, 
                  cfg_path=None, 
-                 checkpoint_path="model_objaverse.ckpt", 
+                 checkpoint_path=None, 
                  device=None):
+        import os as _os
+        from pathlib import Path as _Path
+        if checkpoint_path is None:
+            # 1) env var set by partuv_adapter
+            checkpoint_path = _os.environ.get("PARTUV_CHECKPOINT_PATH", "")
+        if not checkpoint_path or not _Path(checkpoint_path).is_file():
+            # 2) resolve relative to repo layout
+            _cand = _Path(__file__).resolve().parents[6] / "backend" / "pretrained" / "PartUV" / "model_objaverse.ckpt"
+            if _cand.is_file():
+                checkpoint_path = str(_cand)
+            else:
+                # 3) legacy CWD-relative (original behavior)
+                checkpoint_path = checkpoint_path or "model_objaverse.ckpt"
         parser = default_argument_parser()
         args = parser.parse_args([])
         

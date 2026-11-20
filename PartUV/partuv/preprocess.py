@@ -41,7 +41,18 @@ def preprocess(mesh_path, pf_model=None, output_path=None, save_tree_file=False,
     export_time = time.perf_counter() - export_time
     tree_dict = {}
     if pf_model is None:
-        pf_model = PFInferenceModel(device="cuda")
+        import os as _os
+        from pathlib import Path as _Path
+        _ckpt = _os.environ.get("PARTUV_CHECKPOINT_PATH", "")
+        if not _ckpt or not _Path(_ckpt).is_file():
+            # Fallback: resolve relative to this file's repo layout
+            _fallback = _Path(__file__).resolve().parents[4] / "backend" / "pretrained" / "PartUV" / "model_objaverse.ckpt"
+            if _fallback.is_file():
+                _ckpt = str(_fallback)
+        if _ckpt and _Path(_ckpt).is_file():
+            pf_model = PFInferenceModel(device="cuda", checkpoint_path=_ckpt)
+        else:
+            pf_model = PFInferenceModel(device="cuda")
     
     pf_time = time.perf_counter()
 
