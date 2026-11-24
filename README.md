@@ -12,7 +12,6 @@ The repository vendors 13 top-level model-source directories covering 15 adapter
 
 | Directory | Model Name | Primary Task | Upstream Author | Upstream License | Weights Directory (`backend/pretrained/`) | Status in ForMesh3D |
 |---|---|---|---|:---:|---|:---:|
-| `FastMesh/` | FastMesh V1K / V4K | Quad Retopology | FastMesh Contributors | **MIT** | `FastMesh-V1K/` | V1K active manifest entry; V4K pending distinct contract |
 | `Hunyuan3D-2.1/` | Hunyuan3D 2.1 | Shape & PBR Texture | Tencent Hunyuan | **Tencent Community** | `tencent/Hunyuan3D-2.1/` | **VERIFIED PASS / LOCKED** (935k faces, 16.1MB GLB) |
 | `hunyuan3d-2/` | Hunyuan3D DiT Mini | Fast Shape Gen | Tencent Hunyuan | **Tencent Community** | `tencent/Hunyuan3D-2mini/` | **VERIFIED PASS / LOCKED** (758k faces, 13.0MB GLB) |
 | `Paint3D/` | Paint3D | PBR Mesh Texture | OpenTexture Team | **Apache 2.0** | `Paint3D/` | Centralized texturing stage (1K/2K atlas) |
@@ -114,7 +113,7 @@ git -C backend/thirdparty rev-parse HEAD
 
 ## 4. Legal & Commercial Advisory
 
-- **Open Source Models**: Models licensed under Apache 2.0 (e.g. `Taobao3D/TaoFlowForge`, `Unique3D`, `TripoSG`, `Paint3D`) and MIT (e.g. `TRELLIS`, `TRELLIS.2`, `FastMesh`, `SkinTokens`) permit commercial usage subject to license notices and attribution.
+- **Open Source Models**: Models licensed under Apache 2.0 (e.g. `Taobao3D/TaoFlowForge`, `Unique3D`, `TripoSG`, `Paint3D`) and MIT (e.g. `TRELLIS`, `TRELLIS.2`, `SkinTokens`) permit commercial usage subject to license notices and attribution.
 - **Community Models**: `Hunyuan3D-2.1` and `hunyuan3d-2` are subject to the Tencent Hunyuan Community License Agreement (commercial use permitted under 100M MAU).
 - **Non-Commercial / Research Models**: `Pixal3D` (CC BY-NC-SA 4.0) and `ardy` (NVIDIA Source Code License) are strictly restricted to non-commercial research. Commercial deployment or monetized SaaS hosting requires explicit permission from upstream rights holders.
 - **Weights & Checkpoints**: Checkpoint terms are managed independently by model authors on Hugging Face and ModelScope. Inspect individual model card terms before deployment.
