@@ -8,9 +8,7 @@
 # We don't need cmake_minimum_required or project() calls here since they're handled by the root CMakeLists.txt
 
 # Define the source files for the triangle intersection library
-find_package(easy_profiler REQUIRED
-    HINTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/easy_profiler/lib/cmake/easy_profiler"
-)  # STEP 1 #########################
+# easy_profiler removed — .so not in repo; include-only header added in root CMakeLists.txt
 
 
 set(TRIANGLE_SOURCES
@@ -35,5 +33,4 @@ target_link_libraries(triangle_intersection
         CGAL                        # CGAL is needed by users of this library
     PRIVATE
         OpenMP::OpenMP_CXX         # OpenMP is an implementation detail
-        easy_profiler
 )
