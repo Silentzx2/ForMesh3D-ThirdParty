@@ -34,12 +34,21 @@ class multiviewDiffusionNet:
         self.cfg = cfg
         self.mode = self.cfg.model.params.stable_diffusion_config.custom_pipeline[2:]
 
-        model_path = huggingface_hub.snapshot_download(
-            repo_id=config.multiview_pretrained_path,
-            allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
-        )
-
-        model_path = os.path.join(model_path, "hunyuan3d-paintpbr-v2-1")
+        # Prefer the shared local Hunyuan3D-2.1 snapshot used by Shape.
+        # Only use Hub snapshot_download for callers that explicitly pass a repo ID.
+        configured_path = os.path.expanduser(str(config.multiview_pretrained_path))
+        if os.path.isdir(configured_path):
+            model_path = os.path.join(configured_path, "hunyuan3d-paintpbr-v2-1")
+            if not os.path.isdir(model_path):
+                raise FileNotFoundError(
+                    f"Local Hunyuan3D-2.1 Paint checkpoint not found: {model_path}"
+                )
+        else:
+            model_path = huggingface_hub.snapshot_download(
+                repo_id=configured_path,
+                allow_patterns=["hunyuan3d-paintpbr-v2-1/*"],
+            )
+            model_path = os.path.join(model_path, "hunyuan3d-paintpbr-v2-1")
         pipeline = DiffusionPipeline.from_pretrained(
             model_path,
             custom_pipeline=custom_pipeline, 
