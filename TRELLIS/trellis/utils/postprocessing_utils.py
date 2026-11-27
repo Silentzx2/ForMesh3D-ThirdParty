@@ -85,6 +85,8 @@ def _fill_holes(
                 def __init__(self, *args, **kwargs):
                     pass
             rastctx = _DummyRastContext()
+    if not hasattr(utils3d.torch, "rasterize_triangle_faces"):
+        return verts.cpu().numpy(), faces.cpu().numpy()
     for i in tqdm(range(views.shape[0]), total=views.shape[0], disable=not verbose, desc='Rasterizing'):
         view = views[i]
         buffers = utils3d.torch.rasterize_triangle_faces(
