@@ -55,12 +55,12 @@ def _fill_holes(
     radius = 2.0
     fov = torch.deg2rad(torch.tensor(40)).cuda()
     if hasattr(utils3d.torch, 'perspective_from_fov_xy'):
-    projection = utils3d.torch.perspective_from_fov_xy(fov, fov, 1, 3)
-elif hasattr(utils3d.torch, 'perspective_from_fov'):
-    # fallback to generic perspective function (assuming same signature)
-    projection = utils3d.torch.perspective_from_fov(fov, fov, 1, 3)
-else:
-    raise AttributeError('utils3d.torch lacks required perspective function')
+        projection = utils3d.torch.perspective_from_fov_xy(fov, fov, 1, 3)
+    elif hasattr(utils3d.torch, 'perspective_from_fov'):
+        # fallback to generic perspective function (assuming same signature)
+        projection = utils3d.torch.perspective_from_fov(fov, fov, 1, 3)
+    else:
+        raise AttributeError('utils3d.torch lacks required perspective function')
     views = []
     for (yaw, pitch) in zip(yaws, pitchs):
         orig = torch.tensor([
@@ -75,16 +75,16 @@ else:
     # Rasterize
     visblity = torch.zeros(faces.shape[0], dtype=torch.int32, device=verts.device)
     if hasattr(utils3d.torch, "RastContext"):
-    rastctx = utils3d.torch.RastContext(backend='cuda')
-else:
-    # Fallback: use default context if available, otherwise create a minimal stub
-    try:
-        rastctx = utils3d.torch.get_default_context()
-    except Exception:
-        class _DummyRastContext:
-            def __init__(self, *args, **kwargs):
-                pass
-        rastctx = _DummyRastContext()
+        rastctx = utils3d.torch.RastContext(backend='cuda')
+    else:
+        # Fallback: use default context if available, otherwise create a minimal stub
+        try:
+            rastctx = utils3d.torch.get_default_context()
+        except Exception:
+            class _DummyRastContext:
+                def __init__(self, *args, **kwargs):
+                    pass
+            rastctx = _DummyRastContext()
     for i in tqdm(range(views.shape[0]), total=views.shape[0], disable=not verbose, desc='Rasterizing'):
         view = views[i]
         buffers = utils3d.torch.rasterize_triangle_faces(
@@ -334,16 +334,16 @@ def bake_texture(
         texture = torch.zeros((texture_size * texture_size, 3), dtype=torch.float32).cuda()
         texture_weights = torch.zeros((texture_size * texture_size), dtype=torch.float32).cuda()
         if hasattr(utils3d.torch, "RastContext"):
-    rastctx = utils3d.torch.RastContext(backend='cuda')
-else:
-    # Fallback: use default context if available, otherwise create a minimal stub
-    try:
-        rastctx = utils3d.torch.get_default_context()
-    except Exception:
-        class _DummyRastContext:
-            def __init__(self, *args, **kwargs):
-                pass
-        rastctx = _DummyRastContext()
+            rastctx = utils3d.torch.RastContext(backend='cuda')
+        else:
+            # Fallback: use default context if available, otherwise create a minimal stub
+            try:
+                rastctx = utils3d.torch.get_default_context()
+            except Exception:
+                class _DummyRastContext:
+                    def __init__(self, *args, **kwargs):
+                        pass
+                rastctx = _DummyRastContext()
         for observation, view, projection in tqdm(zip(observations, views, projections), total=len(observations), disable=not verbose, desc='Texture baking (fast)'):
             with torch.no_grad():
                 rast = utils3d.torch.rasterize_triangle_faces(
@@ -370,16 +370,16 @@ else:
 
     elif mode == 'opt':
         if hasattr(utils3d.torch, "RastContext"):
-    rastctx = utils3d.torch.RastContext(backend='cuda')
-else:
-    # Fallback: use default context if available, otherwise create a minimal stub
-    try:
-        rastctx = utils3d.torch.get_default_context()
-    except Exception:
-        class _DummyRastContext:
-            def __init__(self, *args, **kwargs):
-                pass
-        rastctx = _DummyRastContext()
+            rastctx = utils3d.torch.RastContext(backend='cuda')
+        else:
+            # Fallback: use default context if available, otherwise create a minimal stub
+            try:
+                rastctx = utils3d.torch.get_default_context()
+            except Exception:
+                class _DummyRastContext:
+                    def __init__(self, *args, **kwargs):
+                        pass
+                rastctx = _DummyRastContext()
         observations = [observations.flip(0) for observations in observations]
         masks = [m.flip(0) for m in masks]
         _uv = []
