@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy import ndarray
 
-from typing import Dict, Union, List, Tuple
+from typing import Any, Dict, Union, List, Tuple
 
 from .order import Order
 from .raw_data import RawData
@@ -82,7 +82,7 @@ class Asset(Exporter):
     # pose matrix for skinning loss calculation, shape (J, 4, 4)
     pose_matrix: Union[ndarray, None]=None
     
-    meta: Union[Dict[str, ...], None]=None
+    meta: Union[Dict[str, Any], None]=None
     
     @property
     def N(self):
