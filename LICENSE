@@ -1,6 +1,6 @@
 # Upstream Model Licenses & Legal Directory
 
-This document details the licensing terms, upstream repositories, copyright holders, and usage conditions for all 13 third-party model source trees vendored in `backend/thirdparty/`.
+This document details the licensing terms, upstream repositories, copyright holders, and usage conditions for all 14 third-party model source trees vendored in `backend/thirdparty/`.
 
 ---
 
@@ -17,6 +17,7 @@ This document details the licensing terms, upstream repositories, copyright hold
 | `TRELLIS/` | TRELLIS | Structured FlexiCubes | Microsoft Research | [microsoft/TRELLIS](https://github.com/microsoft/TRELLIS) | **MIT** | Yes |
 | `TRELLIS.2/` | TRELLIS.2 | Cascaded FlexiDualGrid | Microsoft Research | [microsoft/TRELLIS.2](https://github.com/microsoft/TRELLIS.2) | **MIT** | Yes |
 | `SkinTokens/` | SkinTokens | Unified Autoregressive Rigging | VAST AI Research | [VAST-AI-Research/SkinTokens](https://github.com/VAST-AI-Research/SkinTokens) | **MIT** | Yes |
+| `UniRig/` | UniRig | Unified Skeleton & Skinning | VAST AI Research | [VAST-AI-Research/UniRig](https://github.com/VAST-AI-Research/UniRig) | **MIT** | Yes |
 | `TripoSG/` | TripoSG | Large Reconstruction | VAST AI Research | [VAST-AI-Research/TripoSG](https://github.com/VAST-AI-Research/TripoSG) | **Apache 2.0** | Yes |
 | `ardy/` | ARDY | Text-to-Motion AI | NVIDIA Research | [nv-tlabs/ardy](https://github.com/nv-tlabs/ardy) | **NVIDIA Non-Commercial** | **NO (Research Only)** |
 
@@ -68,3 +69,8 @@ This document details the licensing terms, upstream repositories, copyright hold
 - **License**: NVIDIA Source Code License
 - **File**: [`ardy/LICENSE`](ardy/LICENSE)
 - **Summary**: **NON-COMMERCIAL RESEARCH USE ONLY.** Developed by NVIDIA Research (nv-tlabs). Commercial use, monetization, and public commercial SaaS deployment are strictly prohibited without an explicit commercial license from NVIDIA.
+
+### 11. UniRig (`UniRig/`)
+- **License**: MIT License
+- **File**: [`UniRig/LICENSE`](UniRig/LICENSE)
+- **Summary**: Permissive MIT open-source license provided by VAST AI Research. Full commercial rights granted with attribution.
